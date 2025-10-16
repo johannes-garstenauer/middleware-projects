@@ -1,0 +1,14 @@
+
+*.jar
+*.class
+*.pdf
+
+awscli/
+tweets.dump
+What_is_Docker.mp4
+picture.bmp
+picture.jpg
+data.dump
+data-small.dump
+friends.list
+num_friends.list
