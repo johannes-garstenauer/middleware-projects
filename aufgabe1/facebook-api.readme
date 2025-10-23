@@ -1,0 +1,53 @@
+########################
+# FACEBOOK SERVICE API #
+########################
+
+- Retrieve up to 1000 IDs whose corresponding names contain the string <string>
+
+  HTTP operation: GET
+  Path:           /facebook/search?string=<string>
+  Returns:        String[]
+  Status code:    [200 OK]          in case of success
+                  [400 Bad Request] if no string has been specified
+
+
+- Retrieve the name corresponding to ID {id}
+
+  HTTP operation: GET
+  Path:           /facebook/names/{id}
+  Returns:        String
+  Status code:    [200 OK]        in case of success
+                  [404 Not Found] if the specified ID does not exist
+
+
+- Retrieve the IDs of all friends for ID {id}
+
+  HTTP operation: GET
+  Path:           /facebook/friends/{id}
+  Returns:        String[]
+  Status code:    [200 OK]        in case of success
+                  [404 Not Found] if the specified ID does not exist
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
++ BATCH METHODS FOR EXERCISE 1.2.3 (OPTIONAL FOR 5.0 ECTS) +
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+- Batch method for retrieving the names corresponding to different IDs
+
+  HTTP operation: POST
+  Path:           /facebook/names
+  Request-Body:   A String[] containing the IDs to process
+  Returns:        String[] in which the i-th element represents the name of the i-th ID requested
+  Status code:    [200 OK]          in case of success
+                  [400 Bad Request] if no ID array has been specified
+
+
+- Batch method for retrieving the IDs of friends for different IDs
+
+  HTTP operation: POST
+  Path:           /facebook/friends
+  Request-Body:   A String[] containing the IDs to process
+  Returns:        A Map<String, HashSet<String>> in which the keys represent the IDs to process; for each key, the associated value contains the IDs of the key's friends
+  Status code:    [200 OK]          in case of success
+                  [400 Bad Request] if no ID array has been specified

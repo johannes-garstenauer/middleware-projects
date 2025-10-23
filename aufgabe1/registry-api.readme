@@ -1,0 +1,83 @@
+################
+# REGISTRY API #
+################
+
+- List the names of all existing groups
+
+  HTTP operation: GET
+  Path:           /registry
+  Returns:        String[]
+  Status code:    [200 OK]
+  
+
+- List the services registered by group {group}
+
+  HTTP operation: GET
+  Path:           /registry/{group}
+  Returns:        String[]
+  Status code:    [200 OK]        in case of success
+                  [404 Not Found] if the specified group does not exist
+  
+
+- Register the service {service} for group {group}
+
+  HTTP operation: PUT
+  Path:           /registry/{group}/{service}
+  Status code:    [200 OK]           in case of success
+                  [400 Bad Request]  if {group} or {service} is empty
+                  [401 Unauthorized] if the provided username or password is invalid
+                  [403 Forbidden]    if the specified user is not allowed to modify entries of the group
+                  [404 Not Found]    if the specified group does not exist
+
+
+- Delete the service {service} of group {group}
+
+  HTTP operation: DELETE
+  Path:           /registry/{group}/{service}
+  Status code:    [200 OK]           in case of success
+                  [400 Bad Request]  if {group} or {service} is empty
+                  [401 Unauthorized] if the provided username or password is invalid
+                  [403 Forbidden]    if the specified user is not allowed to modify entries of the group
+                  [404 Not Found]    if the specified group or service does not exist
+
+
+- List the keys of all entries registered for service {service} of group {group}
+
+  HTTP operation: GET
+  Path:           /registry/{group}/{service}
+  Returns:        String[]
+  Status code:    [200 OK]        in case of success
+                  [404 Not Found] if the specified group or service does not exist
+
+
+- Retrieve the value registered for key {key} in service {service} of group {group}
+
+  HTTP operation: GET
+  Path:           /registry/{group}/{service}/{key}
+  Returns:        String
+  Status code:    [200 OK]        in case of success
+                  [404 Not Found] if the specified group or service does not exist
+
+
+- Store/update the value for key {key} in service {service} of group {group}
+
+  HTTP operation: PUT
+  Path:           /registry/{group}/{service}/{key}
+  Request-Body:   A String containing the value
+  Status code:    [200 OK]                       in case of success
+                  [400 Bad Request]              if {group}, {service}, or {key} is empty or the value is null
+                  [401 Unauthorized]             if the provided username or password is invalid
+                  [403 Forbidden]                if the specified user is not allowed to modify entries of the group
+                  [404 Not Found]                if the specified group or service does not exist
+                  [413 Request Entity Too Large] if the specified value is larger than 65536 bytes
+
+
+- Delete the entry for key {key} in service {service} of group {group}
+
+  HTTP operation: DELETE
+  Path:           /registry/{group}/{service}/{key}
+  Status code:    [200 OK]           in case of success
+                  [400 Bad Request]  if {group}, {service}, or {key} is empty
+                  [401 Unauthorized] if the provided username or password is invalid
+                  [403 Forbidden]    if the specified user is not allowed to modify entries of the group
+                  [404 Not Found]    if the specified group, service, or key does not exist
