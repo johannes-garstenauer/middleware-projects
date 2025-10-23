@@ -25,25 +25,34 @@ public class MWPathServer {
     @Path("{startID}/{endID}")
     public Response get(@PathParam("startID") int startID, @PathParam("endID") int endID) {
 
-        Map<String, Collection<String>> friendships = getReducedFriendships(startID, endID);
+        MWPath response = new MWPath();
+        Map<String, Collection<String>> friendships = getReducedFriendships(startID, endID, response);
 
-        MWDijkstra.getShortestPath(
+        response.path = MWDijkstra.getShortestPath(
                 Integer.toString(startID),
                 Integer.toString(endID),
                 friendships
         );
 
-        return Response.ok(new MWPath()).build();
+        response.numberOfIDs = countFriendships(friendships);
+        return Response.ok(response).build();
+    }
+
+    private static int countFriendships(Map<String, Collection<String>> friendships) {
+        return (int) friendships.values().stream()
+                .flatMap(Collection::stream)   // flatten all collections into a stream
+                .distinct()                    // remove duplicates
+                .count();                      // count unique elements
     }
 
     private static List<String> getFriends(int userID) {
 
-        MWRegistryClient mwRegistryClient = initRegistryClient("username", "pw");
+        // TODO hardcoded pw!
+        MWRegistryClient mwRegistryClient = initRegistryClient("of91ipar", "akavdpwgqd");
         WebTarget client = getServiceClient(mwRegistryClient, "i4", "facebook", "address");
 
         Response response = client.path("friends/" + userID).request().get();
-        List<String> friends = response.readEntity(new GenericType<List<String>>() {
-        });
+        List<String> friends = response.readEntity(new GenericType<>() {});
         response.close();
 
         return friends;
@@ -85,7 +94,7 @@ public class MWPathServer {
      * @param setB Second set to be analyzed for a common element.
      * @return Boolean value indicating whether or not a match exists between sets.
      */
-    private static boolean areConnected(Set<String> setA, Set<String> setB) {
+    private static boolean containAnyMatch(Set<String> setA, Set<String> setB) {
         return setB.stream().anyMatch(setA::contains);
     }
 
@@ -98,7 +107,9 @@ public class MWPathServer {
      * @param endID The user id for the path's end.
      * @return Map containing all friends for each user that may possibly be on the path between given users.
      */
-    private static Map<String, Collection<String>> getReducedFriendships(int startID, int endID) {
+    // TODO update for path param
+    // TODO update for counting of calls
+    private static Map<String, Collection<String>> getReducedFriendships(int startID, int endID, MWPath path) {
         Map<String, Collection<String>> result = new HashMap<>(Collections.emptyMap());
 
         // Init set of starting and ending points in friendship graph.
@@ -113,6 +124,7 @@ public class MWPathServer {
             //StartFreundeskreis := alle Nutzer , die von startID in i Schritten erreichbar sind;
             for (String startFriend : startFriendships) {
                 List<String> tmp_friendships = getFriends(Integer.parseInt(startFriend));
+                path.numberOfIDs++;
 
                 // Extend startFriendship set and construct the results map.
                 result.put(startFriend, tmp_friendships);
@@ -122,12 +134,13 @@ public class MWPathServer {
             //EndFreundeskreis := alle Nutzer , die von endID in i Schritten erreichbar sind;
             for (String endFriend : endFriendships) {
                 List<String> tmp_friendships = getFriends(Integer.parseInt(endFriend));
+                path.numberOfIDs++;
 
                 // Extend endFriendship set and construct the results map.
                 result.put(endFriend, tmp_friendships);
                 endFriendships.addAll(tmp_friendships);
             }
-        } while (!areConnected(startFriendships, endFriendships));
+        } while (!containAnyMatch(startFriendships, endFriendships));
 
         return result;
     }
