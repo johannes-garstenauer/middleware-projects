@@ -13,7 +13,6 @@ import org.glassfish.jersey.client.authentication.HttpAuthenticationFeature;
 
 import java.io.*;
 import java.net.URI;
-import java.util.List;
 import java.util.Scanner;
 
 public class MWRegistryClient extends MWShell {
@@ -145,9 +144,13 @@ public class MWRegistryClient extends MWShell {
 	}
 
 	public void deleteValue(String group, String service, String key) throws MWWebServiceException {
-		/*
-		 * TODO: Implement method
-		 */
+        validateArgument(group, "group");
+        validateArgument(service, "service");
+        validateArgument(key, "key");
+
+        Response response = client.path("/" + group + "/" + service + "/" + key)
+                .request().delete();
+        handleValueModifyResponse(response);
 	}
 
     private void handleValueModifyResponse(Response response)
