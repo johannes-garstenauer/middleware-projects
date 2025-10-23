@@ -22,7 +22,7 @@ public class MWPathServer {
     @Path("{startID}/{endID}")
     public Response get(@PathParam("startID") int startID, @PathParam("endID") int endID) {
 
-        Map<String, Collection<String>> friendships = reduceFriendships(startID, endID);
+        Map<String, Collection<String>> friendships = getReducedFriendships(startID, endID);
 
         MWDijkstra.getShortestPath(
                 Integer.toString(startID),
@@ -33,7 +33,6 @@ public class MWPathServer {
         return Response.ok(new MWPath()).build();
     }
 
-    // TODO called each tome -> what abt in batch?
     private static List<String> getFriends(int userID) {
 
         //TODO: fetch from registry
@@ -55,9 +54,19 @@ public class MWPathServer {
         return setB.stream().anyMatch(setA::contains);
     }
 
-    private static Map<String, Collection<String>> reduceFriendships(int startID, int endID) {
+    /***
+     * Collect the friendship lists for each user that could be on the path between the given users.
+     * Iteratively walks the user friendship graph from both the end and starting points until they meet somewhere.
+     * At this point the algorithm terminates.
+     *
+     * @param startID The user id for the path's beginning.
+     * @param endID The user id for the path's end.
+     * @return Map containing all friends for each user that may possibly be on the path between given users.
+     */
+    private static Map<String, Collection<String>> getReducedFriendships(int startID, int endID) {
         Map<String, Collection<String>> result = new HashMap<>(Collections.emptyMap());
 
+        // Init set of starting and ending points in friendship graph.
         Set<String> startFriendships = new HashSet<>(Collections.emptySet());
         startFriendships.add(String.valueOf(startID));
 
@@ -70,6 +79,7 @@ public class MWPathServer {
             for (String startFriend: startFriendships) {
                 List<String> tmp_friendships = getFriends(Integer.parseInt(startFriend));
 
+                // Extend startFriendship set and construct the results map.
                 result.put(startFriend, tmp_friendships);
                 startFriendships.addAll(tmp_friendships);
             }
@@ -78,6 +88,7 @@ public class MWPathServer {
             for (String endFriend: endFriendships) {
                 List<String> tmp_friendships = getFriends(Integer.parseInt(endFriend));
 
+                // Extend endFriendship set and construct the results map.
                 result.put(endFriend, tmp_friendships);
                 endFriendships.addAll(tmp_friendships);
             }
