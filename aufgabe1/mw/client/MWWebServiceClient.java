@@ -5,7 +5,6 @@ import javax.ws.rs.client.ClientBuilder;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.UriBuilder;
 import java.net.URI;
-import java.rmi.registry.Registry;
 
 
 public class MWWebServiceClient extends MWShell {
@@ -28,15 +27,33 @@ public class MWWebServiceClient extends MWShell {
     }
 
     public String[] search(String string) throws MWWebServiceException {
-        return null;
+        Response response = client.path("search")
+                .queryParam("string", string)
+                .request()
+                .get();
+        if (response.getStatus() != 200) {
+            String body = response.readEntity(String.class);
+            throw new MWWebServiceException("HTTP " + response.getStatus() + ": " + body);
+        }
+        return response.readEntity(String[].class);
     }
 
     public String getName(String id) throws MWWebServiceException {
-        return null;
+        Response response = client.path("names/" + id).request().get();
+        if (response.getStatus() != 200) {
+            String body = response.readEntity(String.class);
+            throw new MWWebServiceException("HTTP " + response.getStatus() + ": " + body);
+        }
+        return response.readEntity(String.class);
     }
 
     public String[] getFriends(String id) throws MWWebServiceException {
-        return null;
+        Response response = client.path("friends/" + id).request().get();
+        if (response.getStatus() != 200) {
+            String body = response.readEntity(String.class);
+            throw new MWWebServiceException("HTTP " + response.getStatus() + ": " + body);
+        }
+        return response.readEntity(String[].class);
     }
 
     protected boolean processCommand(String[] args) throws MWWebServiceException {
@@ -52,27 +69,28 @@ public class MWWebServiceClient extends MWShell {
             case "search":
                 if (args.length < 2)
                     throw new MWWebServiceException("Usage: search command: Missing argument");
-                String[] names = search(args[1]);
-                for (String name : names) {
-                    System.out.println(name);
+                String[] ids = search(args[1]);
+                for (String id : ids) {
+                    String name = getName(id);
+                    System.out.println(name + ": " + id);
                 }
                 break;
             case "friends":
                 if (args.length < 2)
                     throw new MWWebServiceException("Usage: friends command: Missing argument");
-                String[] friend_names = getFriends(args[1]);
-                for (String name : friend_names) {
-                    System.out.println(name);
+                String[] friend_ids = getFriends(args[1]);
+                for (String id : friend_ids) {
+                    String name = getName(id);
+                    System.out.println(name + ": " + id);
                 }
                 break;
         }
         return true;
     }
 
-    public static void main(String[] args) {
+    static void main(String[] args) {
         MWWebServiceClient client = new MWWebServiceClient("i4", "facebook", "address");
         client.shell();
-        return;
     }
 
 }
