@@ -2,6 +2,7 @@ package mw.client;
 
 import javax.ws.rs.*;
 import javax.ws.rs.client.ClientBuilder;
+import javax.ws.rs.client.Entity;
 import javax.ws.rs.client.WebTarget;
 import javax.ws.rs.core.GenericType;
 import javax.ws.rs.core.Response;
@@ -69,8 +70,8 @@ public class MWRegistryClient extends MWShell {
         validateArgument(group, "group");
         validateArgument(service, "service");
 
-        // TODO is argument required?
-        Response response = client.path("/" + group + "/" + service).request().put(null);
+        Response response = client.path("/" + group + "/" + service).request()
+                .put(Entity.text(""));
         handleServiceModifyResponse(response);
     }
 
@@ -130,10 +131,17 @@ public class MWRegistryClient extends MWShell {
         return response.readEntity(String.class);
 	}
 
-	public void putValue(String group, String service, String key, String value) throws MWWebServiceException {
-		/*
-		 * TODO: Implement method
-		 */
+    public void putValue(String group, String service, String key, String value) throws MWWebServiceException {
+        validateArgument(group, "group");
+        validateArgument(service, "service");
+        validateArgument(key, "key");
+
+        Response response = client.path("/" + group + "/" + service + "/" + key)
+                .request().put(Entity.text(value));
+        if (response.getStatus() == 413) {
+            throw new MWWebServiceException("Value is too large (>65536 bytes)!");
+        }
+        handleValueModifyResponse(response);
 	}
 
 	public void deleteValue(String group, String service, String key) throws MWWebServiceException {
@@ -141,6 +149,21 @@ public class MWRegistryClient extends MWShell {
 		 * TODO: Implement method
 		 */
 	}
+
+    private void handleValueModifyResponse(Response response)
+            throws MWWebServiceException {
+
+        if (response.getStatus() == 401) {
+            throw new MWWebServiceException("Username or password invalid");
+        } else if (response.getStatus() == 403) {
+            throw new MWWebServiceException(
+                    "User is not allowed to modify entries of the group");
+        } else if (response.getStatus() == 404) {
+            throw new MWWebServiceException("Group or service not found");
+        }
+        requireOK(response);
+    }
+
 
     /**
      * Validates arguments, such as group name and service name to
@@ -287,9 +310,9 @@ public class MWRegistryClient extends MWShell {
 
     public static String readRegistryURL() {
         String[] filePaths = {
-                "/proj/i4mw/pub/aufgabe1/registry.address",
-                "src/registry.address",
-                "registry.address"
+            "/proj/i4mw/pub/aufgabe1/registry.address",
+            "aufgabe1/registry.address",
+            "registry.address"
         };
 
         File file = null;
@@ -301,7 +324,7 @@ public class MWRegistryClient extends MWShell {
             }
         }
 
-        if (file != null) {
+        if (file == null) {
             System.err.println("Error: registry.address was not found!");
             System.exit(1);
             return null;
@@ -319,7 +342,7 @@ public class MWRegistryClient extends MWShell {
     }
 
 	public static void main(String[] args) {
-        MWRegistryClient registry = new MWRegistryClient("http://i4mw.informatik.uni-erlangen.de:18080/registry");
+        MWRegistryClient registry = new MWRegistryClient(readRegistryURL());
         registry.loginViaCLI();
         registry.shell();
 	}
