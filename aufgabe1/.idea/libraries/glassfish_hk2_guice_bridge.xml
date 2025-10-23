@@ -1,0 +1,55 @@
+<component name="libraryTable">
+  <library name="glassfish.hk2.guice.bridge" type="repository">
+    <properties maven-id="org.glassfish.hk2:guice-bridge:2.6.1" />
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/guice-bridge-2.6.1.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/jakarta.inject-2.6.1.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/hk2-api-2.6.1.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/hk2-utils-2.6.1.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/jakarta.annotation-api-1.3.4.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/aopalliance-repackaged-2.6.1.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/guice-4.2.1.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/javax.inject-1.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/aopalliance-1.0.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/guava-25.1-android.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/jsr305-3.0.2.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/checker-compat-qual-2.0.0.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/error_prone_annotations-2.1.3.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/j2objc-annotations-1.1.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/animal-sniffer-annotations-1.14.jar!/" />
+    </CLASSES>
+    <JAVADOC>
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/guice-bridge-2.6.1-javadoc.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/jakarta.inject-2.6.1-javadoc.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/hk2-api-2.6.1-javadoc.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/hk2-utils-2.6.1-javadoc.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/jakarta.annotation-api-1.3.4-javadoc.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/aopalliance-repackaged-2.6.1-javadoc.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/guice-4.2.1-javadoc.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/javax.inject-1-javadoc.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/guava-25.1-android-javadoc.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/jsr305-3.0.2-javadoc.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/checker-compat-qual-2.0.0-javadoc.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/error_prone_annotations-2.1.3-javadoc.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/j2objc-annotations-1.1-javadoc.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/animal-sniffer-annotations-1.14-javadoc.jar!/" />
+    </JAVADOC>
+    <SOURCES>
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/guice-bridge-2.6.1-sources.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/jakarta.inject-2.6.1-sources.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/hk2-api-2.6.1-sources.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/hk2-utils-2.6.1-sources.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/jakarta.annotation-api-1.3.4-sources.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/aopalliance-repackaged-2.6.1-sources.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/guice-4.2.1-sources.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/javax.inject-1-sources.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/aopalliance-1.0-sources.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/guava-25.1-android-sources.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/jsr305-3.0.2-sources.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/checker-compat-qual-2.0.0-sources.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/error_prone_annotations-2.1.3-sources.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/j2objc-annotations-1.1-sources.jar!/" />
+      <root url="jar://$PROJECT_DIR$/jaxrs-ri-2.45/animal-sniffer-annotations-1.14-sources.jar!/" />
+    </SOURCES>
+  </library>
+</component>
