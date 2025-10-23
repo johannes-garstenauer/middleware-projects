@@ -1,42 +1,100 @@
 package mw.client;
 
+import javax.ws.rs.*;
+import javax.ws.rs.client.ClientBuilder;
+import javax.ws.rs.client.WebTarget;
+import javax.ws.rs.core.GenericType;
+import javax.ws.rs.core.Response;
+import javax.ws.rs.core.UriBuilder;
+
+import org.glassfish.jersey.*;
+import org.glassfish.jersey.client.authentication.HttpAuthenticationFeature;
+
+import java.io.*;
+import java.net.URI;
+import java.util.List;
+import java.util.Scanner;
 
 public class MWRegistryClient extends MWShell {
+    WebTarget client;
+
+    public MWRegistryClient(String url) {
+        URI uri = UriBuilder.fromUri(url).build();
+        client = ClientBuilder.newClient().target(uri);
+    }
+
+    public void login(String username, String password) {
+        HttpAuthenticationFeature af = HttpAuthenticationFeature.basic(username, password);
+        client.register(af);
+    }
+
+    public void loginViaCLI() {
+        Scanner scanner = new Scanner(System.in);
+        System.out.println("Please login to use the registry client!");
+        System.out.print("> Username: ");
+        String username = scanner.nextLine();
+        System.out.print("> Password: ");
+        String password = scanner.nextLine();
+        login(username, password);
+    }
 
 	// ##########
 	// # GROUPS #
 	// ##########
 
 	public String[] listGroups() throws MWWebServiceException {
-		/*
-		 * TODO: Implement method
-		 */
-		return null;
+        Response response = client.path("/").request().get();
+        GenericType<String[]> type = new GenericType<>() {};
+        return response.readEntity(type);
 	}
-
 
 	// ############
 	// # SERVICES #
 	// ############
 
 	public String[] listServices(String group) throws MWWebServiceException {
-		/*
-		 * TODO: Implement method
-		 */
-		return null;
+        validateArgument(group, "group");
+
+        Response response = client.path("/" + group).request().get();
+        if (response.getStatus() == 404) {
+            throw new MWWebServiceException("Group " + group + " not found");
+        }
+        requireOK(response);
+
+        GenericType<String[]> type = new GenericType<>() {};
+        return response.readEntity(type);
 	}
 
 	public void createService(String group, String service) throws MWWebServiceException {
-		/*
-		 * TODO: Implement method
-		 */
-	}
+        validateArgument(group, "group");
+        validateArgument(service, "service");
+
+        // TODO is argument required?
+        Response response = client.path("/" + group + "/" + service).request().put(null);
+        handleServiceModifyResponse(response);
+    }
 
 	public void deleteService(String group, String service) throws MWWebServiceException {
-		/*
-		 * TODO: Implement method
-		 */
-	}
+        validateArgument(group, "group");
+        validateArgument(service, "service");
+
+        Response response = client.path("/" + group + "/" + service).request().delete();
+        handleServiceModifyResponse(response);
+    }
+
+    private void handleServiceModifyResponse(Response response)
+            throws MWWebServiceException {
+
+        if (response.getStatus() == 401) {
+            throw new MWWebServiceException("Username or password invalid");
+        } else if (response.getStatus() == 403) {
+            throw new MWWebServiceException(
+                    "User is not allowed to modify entries of the group");
+        } else if (response.getStatus() == 404) {
+            throw new MWWebServiceException("Group not found");
+        }
+        requireOK(response);
+    }
 
 
 	// ###########
@@ -44,17 +102,32 @@ public class MWRegistryClient extends MWShell {
 	// ###########
 
 	public String[] listKeys(String group, String service) throws MWWebServiceException {
-		/*
-		 * TODO: Implement method
-		 */
-		return null;
+        validateArgument(group, "group");
+        validateArgument(service, "service");
+
+        Response response = client.path("/" + group + "/" + service).request().get();
+        if (response.getStatus() == 404) {
+            throw new MWWebServiceException("Group or service not found");
+        }
+        requireOK(response);
+
+        GenericType<String[]> type = new GenericType<>() {};
+        return response.readEntity(type);
 	}
 
 	public String getValue(String group, String service, String key) throws MWWebServiceException {
-		/*
-		 * TODO: Implement method
-		 */
-		return null;
+        validateArgument(group, "group");
+        validateArgument(service, "service");
+        validateArgument(key, "key");
+
+        Response response = client.path("/" + group + "/" + service + "/" + key)
+                .request().get();
+        if (response.getStatus() == 404) {
+            throw new MWWebServiceException("Group or service not found");
+        }
+        requireOK(response);
+
+        return response.readEntity(String.class);
 	}
 
 	public void putValue(String group, String service, String key, String value) throws MWWebServiceException {
@@ -68,6 +141,30 @@ public class MWRegistryClient extends MWShell {
 		 * TODO: Implement method
 		 */
 	}
+
+    /**
+     * Validates arguments, such as group name and service name to
+     * prevent user from typing in paths.
+     * Throws an MWWebServiceException if validation failed.
+     * @param arg Argument to check (such as group name, service name)
+     * @param name Name of argument. Will be displayed in the exception
+     *             if validation failed
+     */
+    private static void validateArgument(String arg, String name)
+            throws MWWebServiceException {
+        if (arg.isEmpty() || !arg.chars().allMatch(Character::isLetterOrDigit)) {
+            throw new MWWebServiceException(
+                    "Validation for argument \"" + name+ "\" failed: \"" + arg + "\"");
+        }
+    }
+    
+    private static void requireOK(Response response)
+        throws MWWebServiceException {
+        if (response.getStatus() != 200) {
+            throw new MWWebServiceException("Unexpected response status: "
+                    + response.getStatus());
+        }
+    }
 
 
 	// ###################
@@ -188,9 +285,43 @@ public class MWRegistryClient extends MWShell {
 	// # MAIN #
 	// ########
 
+    public static String readRegistryURL() {
+        String[] filePaths = {
+                "/proj/i4mw/pub/aufgabe1/registry.address",
+                "src/registry.address",
+                "registry.address"
+        };
+
+        File file = null;
+        for (String filePath : filePaths) {
+            File curr = new File(filePath);
+            if (curr.isFile()) {
+                file = curr;
+                break;
+            }
+        }
+
+        if (file != null) {
+            System.err.println("Error: registry.address was not found!");
+            System.exit(1);
+            return null;
+        }
+
+        try {
+            BufferedReader reader = new BufferedReader(new FileReader(file));
+            return reader.readLine();
+        } catch (IOException e) {
+            System.err.println("Error: registry.address could not be read!");
+            System.err.println(e.getMessage());
+            System.exit(1);
+            return null;
+        }
+    }
+
 	public static void main(String[] args) {
-		MWRegistryClient registry = new MWRegistryClient();
-		registry.shell();
+        MWRegistryClient registry = new MWRegistryClient("http://i4mw.informatik.uni-erlangen.de:18080/registry");
+        registry.loginViaCLI();
+        registry.shell();
 	}
 
 }
