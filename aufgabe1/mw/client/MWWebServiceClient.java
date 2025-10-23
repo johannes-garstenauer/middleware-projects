@@ -11,20 +11,13 @@ import java.rmi.registry.Registry;
 public class MWWebServiceClient extends MWShell {
     WebTarget client;
 
-    public MWWebServiceClient() {
+    public MWWebServiceClient(String group, String service, String key) {
         String registryUrl = MWRegistryClient.readRegistryURL();
         MWRegistryClient registryClient = new MWRegistryClient(registryUrl);
-        //String[] groups = registry_client.listGroups();
-        try {
-            String[] services = registryClient.listServices("gruppe1");
-        } catch (MWWebServiceException e) {
-            e.printStackTrace();
-            System.exit(1);
-        }
         registryClient.loginViaCLI();
         String url = null;
         try {
-            url = registryClient.listKeys("i4", "facebook")[0];
+            url = registryClient.getValue(group, service, key);
         } catch (MWWebServiceException e) {
             System.err.println("Error: url could not be acquired!");
             System.err.println(e.getMessage());
@@ -38,7 +31,7 @@ public class MWWebServiceClient extends MWShell {
         return null;
     }
 
-    public String getname(String id) throws MWWebServiceException {
+    public String getName(String id) throws MWWebServiceException {
         return null;
     }
 
@@ -77,6 +70,8 @@ public class MWWebServiceClient extends MWShell {
     }
 
     public static void main(String[] args) {
+        MWWebServiceClient client = new MWWebServiceClient("i4", "facebook", "address");
+        client.shell();
         return;
     }
 
