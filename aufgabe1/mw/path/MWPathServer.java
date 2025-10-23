@@ -50,6 +50,14 @@ public class MWPathServer {
      * Returns True if the friendshipId lists have a common element.
      * Linear time complexity w.r.t. set sizes.
      */
+    /***
+     * Returns True if the friendshipId lists have a common element.
+     * Linear time complexity w.r.t. set sizes
+     *
+     * @param setA First set to be analyzed for a common element.
+     * @param setB Second set to be analyzed for a common element.
+     * @return Boolean value indicating whether or not a match exists between sets.
+     */
     private static boolean areConnected(Set<String> setA, Set<String> setB) {
         return setB.stream().anyMatch(setA::contains);
     }
