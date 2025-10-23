@@ -1,5 +1,8 @@
 package mw.path;
 
+import mw.client.MWRegistryClient;
+import mw.client.MWWebServiceException;
+
 import javax.inject.Singleton;
 import javax.ws.rs.GET;
 import javax.ws.rs.Path;
@@ -35,21 +38,45 @@ public class MWPathServer {
 
     private static List<String> getFriends(int userID) {
 
-        //TODO: fetch from registry
-        URI uri = UriBuilder.fromUri("http://localhost/").port(12345).build();
-        WebTarget client = ClientBuilder.newClient().target(uri).path("facebook");
+        MWRegistryClient mwRegistryClient = initRegistryClient("username", "pw");
+        WebTarget client = getServiceClient(mwRegistryClient, "i4", "facebook", "address");
 
         Response response = client.path("friends/" + userID).request().get();
-        List<String> friends = response.readEntity(new GenericType<List<String>>() {});
+        List<String> friends = response.readEntity(new GenericType<List<String>>() {
+        });
         response.close();
 
         return friends;
     }
 
-    /***
-     * Returns True if the friendshipId lists have a common element.
-     * Linear time complexity w.r.t. set sizes.
-     */
+    // TODO: static global method for registry creation (now code is just copied from Moritz)
+    // TODO where to put login credentials?
+    private static MWRegistryClient initRegistryClient(String username, String password) {
+        String registryUrl = MWRegistryClient.readRegistryURL();
+        MWRegistryClient registryClient = new MWRegistryClient(registryUrl);
+
+        // TODO alternatively loginviaCLI
+        registryClient.login(username, password);
+        return registryClient;
+    }
+
+    // TODO also global as its code duplicate from Moritz
+    private static WebTarget getServiceClient(MWRegistryClient registryClient, String group, String service, String key) {
+        String url = null;
+
+        try {
+            url = registryClient.getValue(group, service, key);
+        } catch (MWWebServiceException e) {
+
+            System.err.println("Error: url could not be acquired!");
+            System.err.println(e.getMessage());
+            System.exit(1);
+        }
+        URI uri = UriBuilder.fromUri(url).build();
+        return ClientBuilder.newClient().target(uri);
+    }
+
+
     /***
      * Returns True if the friendshipId lists have a common element.
      * Linear time complexity w.r.t. set sizes
@@ -84,7 +111,7 @@ public class MWPathServer {
         do {
 
             //StartFreundeskreis := alle Nutzer , die von startID in i Schritten erreichbar sind;
-            for (String startFriend: startFriendships) {
+            for (String startFriend : startFriendships) {
                 List<String> tmp_friendships = getFriends(Integer.parseInt(startFriend));
 
                 // Extend startFriendship set and construct the results map.
@@ -93,7 +120,7 @@ public class MWPathServer {
             }
 
             //EndFreundeskreis := alle Nutzer , die von endID in i Schritten erreichbar sind;
-            for (String endFriend: endFriendships) {
+            for (String endFriend : endFriendships) {
                 List<String> tmp_friendships = getFriends(Integer.parseInt(endFriend));
 
                 // Extend endFriendship set and construct the results map.
