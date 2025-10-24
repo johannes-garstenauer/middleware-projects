@@ -2,6 +2,8 @@ package mw.path;
 
 import mw.client.MWRegistryClient;
 import mw.client.MWWebServiceException;
+import org.glassfish.jersey.grizzly2.httpserver.GrizzlyHttpServerFactory;
+import org.glassfish.jersey.server.ResourceConfig;
 
 import javax.inject.Singleton;
 import javax.ws.rs.GET;
@@ -154,5 +156,10 @@ public class MWPathServer {
         } while (!containAnyMatch(startFriendships, endFriendships));
 
         return result;
+    }
+    public static void main(String[] args) {
+        URI uri = UriBuilder.fromUri("http://[::]/").port(12345).build();
+        ResourceConfig config = new ResourceConfig(MWPathServer.class);
+        GrizzlyHttpServerFactory.createHttpServer(uri, config);
     }
 }
