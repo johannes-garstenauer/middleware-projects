@@ -17,8 +17,7 @@ public class MWWebServiceClient extends MWShell {
         String registryUrl = MWRegistryClient.readRegistryURL();
         MWRegistryClient registryClient = new MWRegistryClient(registryUrl);
         registryClient.loginViaCLI();
-        MWPathServer pathServer = new MWPathServer();
-        pathServer.register(registryClient);
+
         String pathUri= null;
         try {
             pathUri = registryClient.getValue("gruppe1", "path", "address");
@@ -28,7 +27,7 @@ public class MWWebServiceClient extends MWShell {
             System.exit(1);
         }
         URI pathServerUri = UriBuilder.fromUri(pathUri).build();
-        pathClient = ClientBuilder.newClient().target(pathServerUri);
+        pathClient = ClientBuilder.newClient().target(pathServerUri).path("path");
 
         String registryUri = null;
         try {
@@ -40,6 +39,8 @@ public class MWWebServiceClient extends MWShell {
         }
         URI uri = UriBuilder.fromUri(registryUri).build();
         facebook_client = ClientBuilder.newClient().target(uri);
+        MWPathServer pathServer = new MWPathServer(registryClient, facebook_client);
+        pathServer.register();
     }
 
     public String[] search(String string) throws MWWebServiceException {
@@ -51,7 +52,9 @@ public class MWWebServiceClient extends MWShell {
             String body = response.readEntity(String.class);
             throw new MWWebServiceException("HTTP " + response.getStatus() + ": " + body);
         }
-        return response.readEntity(String[].class);
+        String[] ids = response.readEntity(String[].class);
+        response.close();
+        return ids;
     }
 
     public String getName(String id) throws MWWebServiceException {
@@ -60,11 +63,25 @@ public class MWWebServiceClient extends MWShell {
             String body = response.readEntity(String.class);
             throw new MWWebServiceException("HTTP " + response.getStatus() + ": " + body);
         }
-        return response.readEntity(String.class);
+        String name = response.readEntity(String.class);
+        response.close();
+        return name;
     }
 
     public String[] getFriends(String id) throws MWWebServiceException {
         Response response = facebook_client.path("friends/" + id).request().get();
+        if (response.getStatus() != 200) {
+            String body = response.readEntity(String.class);
+            throw new MWWebServiceException("HTTP " + response.getStatus() + ": " + body);
+        }
+        String[] friends = response.readEntity(String[].class);
+        response.close();
+        return friends;
+    }
+
+    public String[] path(String startId, String endId) throws MWWebServiceException {
+        Response response = pathClient.queryParam("startID", startId)
+                .queryParam("endID", endId).request().get();
         if (response.getStatus() != 200) {
             String body = response.readEntity(String.class);
             throw new MWWebServiceException("HTTP " + response.getStatus() + ": " + body);
@@ -84,7 +101,7 @@ public class MWWebServiceClient extends MWShell {
                 break;
             case "search":
                 if (args.length < 2)
-                    throw new MWWebServiceException("Usage: search command: Missing argument");
+                    throw new IllegalArgumentException("Usage: search command: Missing argument");
                 String[] ids = search(args[1]);
                 for (String id : ids) {
                     String name = getName(id);
@@ -93,13 +110,21 @@ public class MWWebServiceClient extends MWShell {
                 break;
             case "friends":
                 if (args.length < 2)
-                    throw new MWWebServiceException("Usage: friends command: Missing argument");
+                    throw new IllegalArgumentException("Usage: friends command: Missing argument");
                 String[] friend_ids = getFriends(args[1]);
                 for (String id : friend_ids) {
                     String name = getName(id);
                     System.out.println(name + ": " + id);
                 }
                 break;
+            case "path":
+                if (args.length < 3)
+                    throw new IllegalArgumentException("Usage: path command: Missing argument");
+                String[] path =  path(args[1], args[2]);
+                for (String id : path) {
+                    String name = getName(id);
+                    System.out.println(name + ": " + id);
+                }
         }
         return true;
     }

@@ -22,11 +22,18 @@ import java.util.*;
 @Singleton
 @Path("path")
 public class MWPathServer {
+    MWRegistryClient registryClient;
+    WebTarget facebookClient;
+    public MWPathServer(MWRegistryClient registryClient,  WebTarget facebookClient) {
+        this.registryClient = registryClient;
+        this.facebookClient = facebookClient;
+    }
 
-    public void register(MWRegistryClient registryClient) {
+    public void register() {
         //this assumes the client is already logged in
         try {
             registryClient.createService("gruppe1", "path");
+            registryClient.putValue("gruppe1", "path", "address", "http://[::]/");
         } catch (MWWebServiceException e) {
             System.err.println("Error: could not create service!");
             System.err.println(e.getMessage());
@@ -39,16 +46,20 @@ public class MWPathServer {
     public Response get(@PathParam("startID") int startID, @PathParam("endID") int endID) {
 
         MWPath response = new MWPath();
-        Map<String, Collection<String>> friendships = getReducedFriendships(startID, endID, response);
-
-        response.path = MWDijkstra.getShortestPath(
-                Integer.toString(startID),
-                Integer.toString(endID),
-                friendships
-        );
-
-        response.numberOfIDs = countFriendships(friendships);
+        String[] test = new String[1];
+        test[0] = "test";
+        response.path = test;
         return Response.ok(response).build();
+        //Map<String, Collection<String>> friendships = getReducedFriendships(startID, endID, response);
+
+        //response.path = MWDijkstra.getShortestPath(
+        //        Integer.toString(startID),
+        //        Integer.toString(endID),
+        //        friendships
+        //);
+
+        //response.numberOfIDs = countFriendships(friendships);
+        //return Response.ok(response).build();
     }
 
     private static int countFriendships(Map<String, Collection<String>> friendships) {
@@ -58,46 +69,12 @@ public class MWPathServer {
                 .count();                      // count unique elements
     }
 
-    private static List<String> getFriends(int userID) {
-
-        // TODO hardcoded pw!
-        MWRegistryClient mwRegistryClient = initRegistryClient("of91ipar", "akavdpwgqd");
-        WebTarget client = getServiceClient(mwRegistryClient, "i4", "facebook", "address");
-
-        Response response = client.path("friends/" + userID).request().get();
+    private List<String> getFriends(int userID) {
+        Response response = facebookClient.path("friends/" + userID).request().get();
         List<String> friends = response.readEntity(new GenericType<>() {});
         response.close();
-
         return friends;
     }
-
-    // TODO: static global method for registry creation (now code is just copied from Moritz)
-    // TODO where to put login credentials?
-    private static MWRegistryClient initRegistryClient(String username, String password) {
-        String registryUrl = MWRegistryClient.readRegistryURL();
-        MWRegistryClient registryClient = new MWRegistryClient(registryUrl);
-
-        // TODO alternatively loginviaCLI
-        registryClient.login(username, password);
-        return registryClient;
-    }
-
-    // TODO also global as its code duplicate from Moritz
-    private static WebTarget getServiceClient(MWRegistryClient registryClient, String group, String service, String key) {
-        String url = null;
-
-        try {
-            url = registryClient.getValue(group, service, key);
-        } catch (MWWebServiceException e) {
-
-            System.err.println("Error: url could not be acquired!");
-            System.err.println(e.getMessage());
-            System.exit(1);
-        }
-        URI uri = UriBuilder.fromUri(url).build();
-        return ClientBuilder.newClient().target(uri);
-    }
-
 
     /***
      * Returns True if the friendshipId lists have a common element.
@@ -122,7 +99,7 @@ public class MWPathServer {
      */
     // TODO update for path param
     // TODO update for counting of calls
-    private static Map<String, Collection<String>> getReducedFriendships(int startID, int endID, MWPath path) {
+    private Map<String, Collection<String>> getReducedFriendships(int startID, int endID, MWPath path) {
         Map<String, Collection<String>> result = new HashMap<>(Collections.emptyMap());
 
         // Init set of starting and ending points in friendship graph.
