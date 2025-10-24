@@ -21,6 +21,17 @@ import java.util.*;
 @Path("path")
 public class MWPathServer {
 
+    public void register(MWRegistryClient registryClient) {
+        //this assumes the client is already logged in
+        try {
+            registryClient.createService("gruppe1", "path");
+        } catch (MWWebServiceException e) {
+            System.err.println("Error: could not create service!");
+            System.err.println(e.getMessage());
+            System.exit(1);
+        }
+    }
+
     @GET
     @Path("{startID}/{endID}")
     public Response get(@PathParam("startID") int startID, @PathParam("endID") int endID) {
