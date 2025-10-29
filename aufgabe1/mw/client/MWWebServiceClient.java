@@ -1,6 +1,7 @@
 package mw.client;
 
 import mw.path.MWPathServer;
+import mw.client.MWRegistryClient;
 
 import javax.ws.rs.client.WebTarget;
 import javax.ws.rs.client.ClientBuilder;
@@ -10,41 +11,40 @@ import java.net.URI;
 
 
 public class MWWebServiceClient extends MWShell {
-    WebTarget facebook_client;
+    WebTarget facebookClient;
     WebTarget pathClient;
+    MWRegistryClient registryClient;
 
     public MWWebServiceClient(String group, String service, String key) {
+        // initializes the registry Client, the path Server, path Client and facebook client
         String registryUrl = MWRegistryClient.readRegistryURL();
-        MWRegistryClient registryClient = new MWRegistryClient(registryUrl);
+        registryClient = new MWRegistryClient(registryUrl);
         registryClient.loginViaCLI();
 
-        String pathUri= null;
-        try {
-            pathUri = registryClient.getValue("gruppe1", "path", "address");
-        } catch (MWWebServiceException e) {
-            System.err.println("Error: path service uri not received!");
-            System.err.println(e.getMessage());
-            System.exit(1);
-        }
-        URI pathServerUri = UriBuilder.fromUri(pathUri).build();
-        pathClient = ClientBuilder.newClient().target(pathServerUri).path("path");
 
-        String registryUri = null;
         try {
-            registryUri = registryClient.getValue(group, service, key);
+            String pathUri = registryClient.getValue("gruppe1", "path", "address");
+            URI pathServerUri = UriBuilder.fromUri(pathUri).build();
+            pathClient = ClientBuilder.newClient().target(pathServerUri);
         } catch (MWWebServiceException e) {
-            System.err.println("Error: url could not be acquired!");
+            System.err.println("Error: path client could not be built!");
+            System.err.println(e.getMessage());
+            System.exit(-1);
+        }
+
+        try {
+            String registryUri = registryClient.getValue(group, service, key);
+            URI uri = UriBuilder.fromUri(registryUri).build();
+            facebookClient = ClientBuilder.newClient().target(uri);
+        } catch (MWWebServiceException e) {
+            System.err.println("Error: facebook client could not be built!");
             System.err.println(e.getMessage());
             System.exit(1);
         }
-        URI uri = UriBuilder.fromUri(registryUri).build();
-        facebook_client = ClientBuilder.newClient().target(uri);
-        MWPathServer pathServer = new MWPathServer(registryClient, facebook_client);
-        pathServer.register();
     }
 
     public String[] search(String string) throws MWWebServiceException {
-        Response response = facebook_client.path("search")
+        Response response = facebookClient.path("search")
                 .queryParam("string", string)
                 .request()
                 .get();
@@ -58,7 +58,7 @@ public class MWWebServiceClient extends MWShell {
     }
 
     public String getName(String id) throws MWWebServiceException {
-        Response response = facebook_client.path("names/" + id).request().get();
+        Response response = facebookClient.path("names/" + id).request().get();
         if (response.getStatus() != 200) {
             String body = response.readEntity(String.class);
             throw new MWWebServiceException("HTTP " + response.getStatus() + ": " + body);
@@ -69,7 +69,7 @@ public class MWWebServiceClient extends MWShell {
     }
 
     public String[] getFriends(String id) throws MWWebServiceException {
-        Response response = facebook_client.path("friends/" + id).request().get();
+        Response response = facebookClient.path("friends/" + id).request().get();
         if (response.getStatus() != 200) {
             String body = response.readEntity(String.class);
             throw new MWWebServiceException("HTTP " + response.getStatus() + ": " + body);
@@ -80,7 +80,7 @@ public class MWWebServiceClient extends MWShell {
     }
 
     public String[] path(String startId, String endId) throws MWWebServiceException {
-        Response response = pathClient.queryParam("startID", startId)
+        Response response = pathClient.path("path").queryParam("startID", startId)
                 .queryParam("endID", endId).request().get();
         if (response.getStatus() != 200) {
             String body = response.readEntity(String.class);

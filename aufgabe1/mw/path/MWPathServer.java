@@ -9,6 +9,7 @@ import javax.inject.Singleton;
 import javax.ws.rs.GET;
 import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
+import javax.ws.rs.QueryParam;
 import javax.ws.rs.client.ClientBuilder;
 import javax.ws.rs.client.WebTarget;
 import javax.ws.rs.core.GenericType;
@@ -24,16 +25,15 @@ import java.util.*;
 public class MWPathServer {
     MWRegistryClient registryClient;
     WebTarget facebookClient;
-    public MWPathServer(MWRegistryClient registryClient,  WebTarget facebookClient) {
+    public MWPathServer(MWRegistryClient registryClient) {
         this.registryClient = registryClient;
-        this.facebookClient = facebookClient;
     }
 
     public void register() {
         //this assumes the client is already logged in
         try {
             registryClient.createService("gruppe1", "path");
-            registryClient.putValue("gruppe1", "path", "address", "http://[::]/");
+            registryClient.putValue("gruppe1", "path", "address", "http://localhost:12345/");
         } catch (MWWebServiceException e) {
             System.err.println("Error: could not create service!");
             System.err.println(e.getMessage());
@@ -42,14 +42,11 @@ public class MWPathServer {
     }
 
     @GET
-    @Path("{startID}/{endID}")
-    public Response get(@PathParam("startID") int startID, @PathParam("endID") int endID) {
+    public Response get(@QueryParam("startID") int startID,
+                        @QueryParam("endID") int endID) {
 
-        MWPath response = new MWPath();
-        String[] test = new String[1];
-        test[0] = "test";
-        response.path = test;
-        return Response.ok(response).build();
+        String[] test = new String[] {"test"};
+        return Response.ok(test).build();
         //Map<String, Collection<String>> friendships = getReducedFriendships(startID, endID, response);
 
         //response.path = MWDijkstra.getShortestPath(
@@ -134,9 +131,14 @@ public class MWPathServer {
 
         return result;
     }
-    public static void main(String[] args) {
-        URI uri = UriBuilder.fromUri("http://[::]/").port(12345).build();
-        ResourceConfig config = new ResourceConfig(MWPathServer.class);
-        GrizzlyHttpServerFactory.createHttpServer(uri, config);
+    static void main(String[] args) {
+        String registryUrl = MWRegistryClient.readRegistryURL();
+        MWRegistryClient reg = new MWRegistryClient(registryUrl);
+        reg.loginViaCLI();
+        MWPathServer resource = new MWPathServer(reg);
+        resource.register();
+        URI uri = UriBuilder.fromUri("http://0.0.0.0/").port(12345).build();
+        ResourceConfig rc = new ResourceConfig().register(resource);
+        GrizzlyHttpServerFactory.createHttpServer(uri, rc);
     }
 }
