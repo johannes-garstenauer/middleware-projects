@@ -1,5 +1,6 @@
 package mw.client;
 
+import mw.path.MWPath;
 import mw.path.MWPathServer;
 import mw.client.MWRegistryClient;
 
@@ -106,7 +107,7 @@ public class MWWebServiceClient extends MWShell {
     }
 
 
-    public String[] path(String startId, String endId, boolean batching) throws MWWebServiceException {
+    public MWPath path(String startId, String endId, boolean batching) throws MWWebServiceException {
         try (Response response = pathClient.path("path").queryParam("startID", startId)
                 .queryParam("endID", endId).queryParam("batching", batching)
                 .request().get()) {
@@ -114,7 +115,8 @@ public class MWWebServiceClient extends MWShell {
                 String body = response.readEntity(String.class);
                 throw new MWWebServiceException("HTTP " + response.getStatus() + ": " + body);
             }
-            return response.readEntity(String[].class);
+            GenericType<MWPath> type = new GenericType<>() {};
+            return response.readEntity(type);
         }
     }
 
@@ -196,8 +198,8 @@ public class MWWebServiceClient extends MWShell {
                     batching = Boolean.parseBoolean(args[3]);
                 }
 
-                String[] path =  path(args[1], args[2], batching);
-                for (String id : path) {
+                MWPath path =  path(args[1], args[2], batching);
+                for (String id : path.path) {
                     String name = getName(id);
                     System.out.println(name + ": " + id);
                 }
@@ -205,7 +207,7 @@ public class MWWebServiceClient extends MWShell {
         return true;
     }
 
-    static void main(String[] args) {
+    public static void main(String[] args) {
         MWWebServiceClient facebook_client = new MWWebServiceClient("i4", "facebook", "address");
         facebook_client.shell();
     }

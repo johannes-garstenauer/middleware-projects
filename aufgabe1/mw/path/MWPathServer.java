@@ -19,6 +19,7 @@ import javax.ws.rs.core.UriBuilder;
 import java.io.IOException;
 import java.net.URI;
 import java.util.*;
+import java.util.stream.Collectors;
 
 //TODO: String int conversion are really silly here
 
@@ -55,8 +56,7 @@ public class MWPathServer implements AutoCloseable {
         MWPath response = new MWPath();
         Map<String, Collection<String>> friendships;
         if (batching) {
-            // TODO implement batching
-            friendships = null;
+            friendships = getReducedFriendshipsBatched(startID, endID, response);
         } else {
             friendships = getReducedFriendships(startID, endID, response);
         }
@@ -85,7 +85,7 @@ public class MWPathServer implements AutoCloseable {
         return friends;
     }
 
-    private Map<String, HashSet<String>> getFriends (String[] ids)
+    private Map<String, HashSet<String>> getFriends(String[] ids)
             throws MWWebServiceException {
         try (Response response = facebookClient.path("friends").request().post(Entity.json(ids))) {
             if (response.getStatus() != 200) {
@@ -145,19 +145,18 @@ public class MWPathServer implements AutoCloseable {
                 List<String> tmp_friendships = null;
                 try {
                     tmp_friendships = getFriends(startFriend);
+                    path.numberOfCalls++;
                 } catch (MWWebServiceException e) {
                     System.err.println("Error: could not get friends of user " + startFriend);
                     System.err.println(e.getMessage());
                     System.exit(-1);
                 }
-                path.numberOfIDs++;
 
                 // Extend startFriendship set and construct the results map.
                 result.put(startFriend, tmp_friendships);
                 newFriends.addAll(tmp_friendships);
             }
             startFriendships.addAll(newFriends);
-
 
             //EndFreundeskreis := alle Nutzer , die von endID in
             // i Schritten erreichbar sind;
@@ -166,12 +165,12 @@ public class MWPathServer implements AutoCloseable {
                 List<String> tmp_friendships = null;
                 try {
                     tmp_friendships = getFriends(endFriend);
+                    path.numberOfCalls++;
                 } catch (MWWebServiceException e) {
                     System.err.println("Error: could not get friends of user " + endFriend);
                     System.err.println(e.getMessage());
                     System.exit(-1);
                 }
-                path.numberOfIDs++;
 
                 // Extend endFriendship set and construct the results map.
                 result.put(endFriend, tmp_friendships);
@@ -184,6 +183,52 @@ public class MWPathServer implements AutoCloseable {
         return result;
     }
 
+    private Map<String, Collection<String>> getReducedFriendshipsBatched(String startID,
+                                                                  String endID,
+                                                                  MWPath path) {
+        Map<String, Collection<String>> result = new HashMap<>(Collections.emptyMap());
+
+        // Init set of starting and ending points in friendship graph.
+        Set<String> startFriendships = new HashSet<>(Collections.emptySet());
+        startFriendships.add(String.valueOf(startID));
+
+        Set<String> endFriendships = new HashSet<>(Collections.emptyList());
+        endFriendships.add(String.valueOf(endID));
+
+        do {
+
+            //StartFreundeskreis := alle Nutzer , die von startID in i Schritten
+            // erreichbar sind;
+            try {
+                Map<String, HashSet<String>> newFriends = getFriends(startFriendships.toArray(new String[0]));
+                path.numberOfCalls++;
+
+                startFriendships.addAll(newFriends.values().stream().flatMap(Set::stream).collect(Collectors.toSet()));
+                result.putAll(newFriends);
+            } catch (MWWebServiceException e) {
+                System.err.println("Error: could not get friends of user " + Arrays.toString(startFriendships.toArray()));
+                System.err.println(e.getMessage());
+                System.exit(-1);
+            }
+
+            //EndFreundeskreis := alle Nutzer , die von endID in
+            // i Schritten erreichbar sind;
+            try {
+                Map<String, HashSet<String>> newFriends = getFriends(endFriendships.toArray(new String[0]));
+                path.numberOfCalls++;
+
+                endFriendships.addAll(newFriends.values().stream().flatMap(Set::stream).collect(Collectors.toSet()));
+                result.putAll(newFriends);
+            } catch (MWWebServiceException e) {
+                System.err.println("Error: could not get friends of user " + Arrays.toString(startFriendships.toArray()));
+                System.err.println(e.getMessage());
+                System.exit(-1);
+            }
+        } while (!containAnyMatch(startFriendships, endFriendships));
+
+        return result;
+    }
+
     /**
      * Clean up server by removing itself from the registry.
      */
@@ -191,7 +236,7 @@ public class MWPathServer implements AutoCloseable {
         registryClient.deleteValue("gruppe1", "path", "address");
     }
 
-    static void main(String[] args) {
+    public static void main(String[] args) {
         String registryUrl = MWRegistryClient.readRegistryURL();
         MWRegistryClient reg = new MWRegistryClient(registryUrl);
         reg.autoLogin();
