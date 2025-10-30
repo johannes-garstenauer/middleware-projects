@@ -2,19 +2,21 @@ package mw.path;
 
 import mw.client.MWRegistryClient;
 import mw.client.MWWebServiceException;
+import org.glassfish.grizzly.http.server.HttpServer;
 import org.glassfish.jersey.grizzly2.httpserver.GrizzlyHttpServerFactory;
 import org.glassfish.jersey.server.ResourceConfig;
 
 import javax.inject.Singleton;
 import javax.ws.rs.GET;
 import javax.ws.rs.Path;
-import javax.ws.rs.PathParam;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.client.ClientBuilder;
+import javax.ws.rs.client.Entity;
 import javax.ws.rs.client.WebTarget;
 import javax.ws.rs.core.GenericType;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.UriBuilder;
+import java.io.IOException;
 import java.net.URI;
 import java.util.*;
 
@@ -22,18 +24,23 @@ import java.util.*;
 
 @Singleton
 @Path("path")
-public class MWPathServer {
-    MWRegistryClient registryClient;
-    WebTarget facebookClient;
-    public MWPathServer(MWRegistryClient registryClient) {
+public class MWPathServer implements AutoCloseable {
+    private final MWRegistryClient registryClient;
+    private final WebTarget facebookClient;
+    
+    //private static final bool I
+
+    public MWPathServer(MWRegistryClient registryClient, WebTarget facebookClient) {
         this.registryClient = registryClient;
+        this.facebookClient = facebookClient;
     }
 
     public void register() {
         //this assumes the client is already logged in
         try {
             registryClient.createService("gruppe1", "path");
-            registryClient.putValue("gruppe1", "path", "address", "http://localhost:12345/");
+            registryClient.putValue("gruppe1", "path",
+                    "address", "http://localhost:12345/");
         } catch (MWWebServiceException e) {
             System.err.println("Error: could not create service!");
             System.err.println(e.getMessage());
@@ -42,21 +49,22 @@ public class MWPathServer {
     }
 
     @GET
-    public Response get(@QueryParam("startID") int startID,
-                        @QueryParam("endID") int endID) {
+    public Response get(@QueryParam("startID") String startID,
+                        @QueryParam("endID") String endID,
+                        @QueryParam("batching") boolean batching) {
+        MWPath response = new MWPath();
+        Map<String, Collection<String>> friendships;
+        if (batching) {
+            // TODO implement batching
+            friendships = null;
+        } else {
+            friendships = getReducedFriendships(startID, endID, response);
+        }
 
-        String[] test = new String[] {"test"};
-        return Response.ok(test).build();
-        //Map<String, Collection<String>> friendships = getReducedFriendships(startID, endID, response);
+        response.path = MWDijkstra.getShortestPath(startID, endID, friendships);
 
-        //response.path = MWDijkstra.getShortestPath(
-        //        Integer.toString(startID),
-        //        Integer.toString(endID),
-        //        friendships
-        //);
-
-        //response.numberOfIDs = countFriendships(friendships);
-        //return Response.ok(response).build();
+        response.numberOfIDs = countFriendships(friendships);
+        return Response.ok(response).build();
     }
 
     private static int countFriendships(Map<String, Collection<String>> friendships) {
@@ -66,11 +74,27 @@ public class MWPathServer {
                 .count();                      // count unique elements
     }
 
-    private List<String> getFriends(int userID) {
+    private List<String> getFriends(String userID) throws MWWebServiceException{
         Response response = facebookClient.path("friends/" + userID).request().get();
+        if (response.getStatus() != 200) {
+            String body = response.readEntity(String.class);
+            throw new MWWebServiceException("HTTP" + response.getStatus() + ": " + body);
+        }
         List<String> friends = response.readEntity(new GenericType<>() {});
         response.close();
         return friends;
+    }
+
+    private Map<String, HashSet<String>> getFriends (String[] ids)
+            throws MWWebServiceException {
+        try (Response response = facebookClient.path("friends").request().post(Entity.json(ids))) {
+            if (response.getStatus() != 200) {
+                String body = response.readEntity(String.class);
+                throw new MWWebServiceException("HTTP " + response.getStatus() + ": " + body);
+            }
+            GenericType<Map<String, HashSet<String>>> type = new GenericType<>() {};
+            return response.readEntity(type);
+        }
     }
 
     /***
@@ -79,24 +103,30 @@ public class MWPathServer {
      *
      * @param setA First set to be analyzed for a common element.
      * @param setB Second set to be analyzed for a common element.
-     * @return Boolean value indicating whether or not a match exists between sets.
+     * @return Boolean value indicating whether a match exists between sets.
      */
     private static boolean containAnyMatch(Set<String> setA, Set<String> setB) {
         return setB.stream().anyMatch(setA::contains);
     }
 
     /***
-     * Collect the friendship lists for each user that could be on the path between the given users.
-     * Iteratively walks the user friendship graph from both the end and starting points until they meet somewhere.
+     * Collect the friendship lists for each user that could be on the path between the
+     * given users.
+     * Iteratively walks the user friendship graph from both the end and starting points
+     * until they meet somewhere.
      * At this point the algorithm terminates.
      *
      * @param startID The user id for the path's beginning.
      * @param endID The user id for the path's end.
-     * @return Map containing all friends for each user that may possibly be on the path between given users.
+     * @return Map containing all friends for each user that may be on the path
+     * between given users.
      */
     // TODO update for path param
     // TODO update for counting of calls
-    private Map<String, Collection<String>> getReducedFriendships(int startID, int endID, MWPath path) {
+    // TODO time measurements
+    private Map<String, Collection<String>> getReducedFriendships(String startID,
+                                                                  String endID,
+                                                                  MWPath path) {
         Map<String, Collection<String>> result = new HashMap<>(Collections.emptyMap());
 
         // Init set of starting and ending points in friendship graph.
@@ -108,37 +138,88 @@ public class MWPathServer {
 
         do {
 
-            //StartFreundeskreis := alle Nutzer , die von startID in i Schritten erreichbar sind;
+            //StartFreundeskreis := alle Nutzer , die von startID in i Schritten
+            // erreichbar sind;
+            List<String> newFriends = new ArrayList<>();
             for (String startFriend : startFriendships) {
-                List<String> tmp_friendships = getFriends(Integer.parseInt(startFriend));
+                List<String> tmp_friendships = null;
+                try {
+                    tmp_friendships = getFriends(startFriend);
+                } catch (MWWebServiceException e) {
+                    System.err.println("Error: could not get friends of user " + startFriend);
+                    System.err.println(e.getMessage());
+                    System.exit(-1);
+                }
                 path.numberOfIDs++;
 
                 // Extend startFriendship set and construct the results map.
                 result.put(startFriend, tmp_friendships);
-                startFriendships.addAll(tmp_friendships);
+                newFriends.addAll(tmp_friendships);
             }
+            startFriendships.addAll(newFriends);
 
-            //EndFreundeskreis := alle Nutzer , die von endID in i Schritten erreichbar sind;
+
+            //EndFreundeskreis := alle Nutzer , die von endID in
+            // i Schritten erreichbar sind;
+            newFriends = new ArrayList<>();
             for (String endFriend : endFriendships) {
-                List<String> tmp_friendships = getFriends(Integer.parseInt(endFriend));
+                List<String> tmp_friendships = null;
+                try {
+                    tmp_friendships = getFriends(endFriend);
+                } catch (MWWebServiceException e) {
+                    System.err.println("Error: could not get friends of user " + endFriend);
+                    System.err.println(e.getMessage());
+                    System.exit(-1);
+                }
                 path.numberOfIDs++;
 
                 // Extend endFriendship set and construct the results map.
                 result.put(endFriend, tmp_friendships);
-                endFriendships.addAll(tmp_friendships);
+                newFriends.addAll(tmp_friendships);
             }
+            endFriendships.addAll(newFriends);
+
         } while (!containAnyMatch(startFriendships, endFriendships));
 
         return result;
     }
+
+    /**
+     * Clean up server by removing itself from the registry.
+     */
+    public void close() throws MWWebServiceException {
+        registryClient.deleteValue("gruppe1", "path", "address");
+    }
+
     static void main(String[] args) {
         String registryUrl = MWRegistryClient.readRegistryURL();
         MWRegistryClient reg = new MWRegistryClient(registryUrl);
-        reg.loginViaCLI();
-        MWPathServer resource = new MWPathServer(reg);
-        resource.register();
-        URI uri = UriBuilder.fromUri("http://0.0.0.0/").port(12345).build();
-        ResourceConfig rc = new ResourceConfig().register(resource);
-        GrizzlyHttpServerFactory.createHttpServer(uri, rc);
+        reg.autoLogin();
+
+        String facebookUriString;
+        try {
+            facebookUriString = reg.getValue("i4",
+                    "facebook", "address");
+        } catch (MWWebServiceException e) {
+            System.err.println("Error: Could not retrieve facebook url!");
+            System.err.println(e.getMessage());
+            System.exit(1);
+            return;
+        }
+        URI facebookUri = UriBuilder.fromUri(facebookUriString).build();
+        WebTarget facebookClient = ClientBuilder.newClient().target(facebookUri);
+
+        MWPathServer pathServer = new MWPathServer(reg, facebookClient);
+        try {
+            pathServer.register();
+            URI uri = UriBuilder.fromUri("http://0.0.0.0/")
+                    .port(12345).build();
+            ResourceConfig rc = new ResourceConfig().register(pathServer);
+            HttpServer server = GrizzlyHttpServerFactory.createHttpServer(uri, rc);
+            server.start();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+
     }
 }

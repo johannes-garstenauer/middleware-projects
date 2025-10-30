@@ -28,6 +28,54 @@ public class MWRegistryClient extends MWShell {
         client.register(af);
     }
 
+    /**
+     * Choose either loginViaFile if possible or loginViaCLI if no file
+     * with credentials was found
+     */
+    public void autoLogin() {
+        if (!loginViaFile()) {
+            loginViaCLI();
+        }
+    }
+
+    public boolean loginViaFile() {
+        String[] filePaths = {
+                "aufgabe1/credentials.txt",
+                "credentials.txt"
+        };
+
+        File file = null;
+        for (String filePath : filePaths) {
+            File curr = new File(filePath);
+            if (curr.isFile()) {
+                file = curr;
+                break;
+            }
+        }
+
+        if (file == null) {
+            // no file found
+            return false;
+        }
+
+        try {
+            BufferedReader reader = new BufferedReader(new FileReader(file));
+            String username = reader.readLine();
+            String password = reader.readLine();
+
+            if (password == null) {
+                // end of file detected
+                return false;
+            }
+            login(username, password);
+            return true;
+        } catch (IOException e) {
+            System.err.println("Warning: Could not read auth.txt!");
+            System.err.println(e.getMessage());
+            return false;
+        }
+    }
+
     public void loginViaCLI() {
         Scanner scanner = new Scanner(System.in);
         System.out.println("Please login to use the registry client!");
@@ -346,7 +394,7 @@ public class MWRegistryClient extends MWShell {
 
 	public static void main(String[] args) {
         MWRegistryClient registry = new MWRegistryClient(readRegistryURL());
-        registry.loginViaCLI();
+        registry.autoLogin();
         registry.shell();
 	}
 
