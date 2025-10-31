@@ -203,6 +203,8 @@ public class MWWebServiceClient extends MWShell {
                     String name = getName(id);
                     System.out.println(name + ": " + id);
                 }
+                System.out.println("Number of Calls: " + path.numberOfCalls);
+                System.out.println("Number of IDs: " + path.numberOfIDs);
         }
         return true;
     }
