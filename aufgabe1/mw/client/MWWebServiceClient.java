@@ -1,5 +1,6 @@
 package mw.client;
 
+import mw.path.MWPath;
 import mw.path.MWPathServer;
 import mw.client.MWRegistryClient;
 
@@ -14,6 +15,8 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.List;
+import java.util.ArrayList;
 
 
 public class MWWebServiceClient extends MWShell {
@@ -106,7 +109,7 @@ public class MWWebServiceClient extends MWShell {
     }
 
 
-    public String[] path(String startId, String endId, boolean batching) throws MWWebServiceException {
+    public MWPath path(String startId, String endId, boolean batching) throws MWWebServiceException {
         try (Response response = pathClient.path("path").queryParam("startID", startId)
                 .queryParam("endID", endId).queryParam("batching", batching)
                 .request().get()) {
@@ -114,8 +117,31 @@ public class MWWebServiceClient extends MWShell {
                 String body = response.readEntity(String.class);
                 throw new MWWebServiceException("HTTP " + response.getStatus() + ": " + body);
             }
-            return response.readEntity(String[].class);
+            GenericType<MWPath> type = new GenericType<>() {};
+            return response.readEntity(type);
         }
+    }
+
+    public List<Integer> testLatency() throws MWWebServiceException {
+        List<String> names = Arrays.asList("alex", "simon", "paul"); //"randomly" chosen names as test subjects
+        List<String> ids = new ArrayList<String>();
+        List<Integer> result = Arrays.asList(0, 1, 2, 3);
+
+        for (String name : names) {
+            String[] returnIDs = search(name);
+            ids.addAll(Arrays.asList(returnIDs));
+        }
+        // latencies without batching
+        List<Integer> latencies = new ArrayList<Integer>();
+        for (String id1 : ids) {
+            for (String id2 : ids) {
+                if  (id1.equals(id2)) {continue;}
+                MWPath returnedPath = path(id1, id2, false);
+                //latencies.addAll(returnedPath.)
+            }
+        }
+        return result;
+
     }
 
     protected boolean processCommand(String[] args) throws MWWebServiceException {
@@ -196,11 +222,20 @@ public class MWWebServiceClient extends MWShell {
                     batching = Boolean.parseBoolean(args[3]);
                 }
 
-                String[] path =  path(args[1], args[2], batching);
-                for (String id : path) {
+                MWPath path =  path(args[1], args[2], batching);
+                for (String id : path.path) {
                     String name = getName(id);
                     System.out.println(name + ": " + id);
                 }
+                System.out.println("Number of Calls: " + path.numberOfCalls);
+                System.out.println("Number of IDs: " + path.numberOfIDs);
+                break;
+            case "test-latency":
+                if (args.length > 1)
+                    throw new IllegalArgumentException("Usage: test-latency command: " +
+                            "this command does not take any arguments");
+                List<Integer> latencies = testLatency();
+                break;
         }
         return true;
     }
