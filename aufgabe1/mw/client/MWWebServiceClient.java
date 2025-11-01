@@ -229,6 +229,8 @@ public class MWWebServiceClient extends MWShell {
                 }
                 System.out.println("Number of Calls: " + path.numberOfCalls);
                 System.out.println("Number of IDs: " + path.numberOfIDs);
+                System.out.println("Number of Calls: " + path.numberOfCalls);
+                System.out.println("Number of IDs: " + path.numberOfIDs);
                 break;
             case "test-latency":
                 if (args.length > 1)
@@ -240,7 +242,7 @@ public class MWWebServiceClient extends MWShell {
         return true;
     }
 
-    static void main(String[] args) {
+    public static void main(String[] args) {
         MWWebServiceClient facebook_client = new MWWebServiceClient("i4", "facebook", "address");
         facebook_client.shell();
     }

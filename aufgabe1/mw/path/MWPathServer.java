@@ -151,7 +151,6 @@ public class MWPathServer implements AutoCloseable {
                     System.err.println(e.getMessage());
                     System.exit(-1);
                 }
-                path.numberOfIDs++;
 
                 // Extend startFriendship set and construct the results map.
                 result.put(startFriend, tmp_friendships);
@@ -172,7 +171,6 @@ public class MWPathServer implements AutoCloseable {
                     System.err.println(e.getMessage());
                     System.exit(-1);
                 }
-                path.numberOfIDs++;
 
                 // Extend endFriendship set and construct the results map.
                 result.put(endFriend, tmp_friendships);
@@ -238,7 +236,7 @@ public class MWPathServer implements AutoCloseable {
         registryClient.deleteValue("gruppe1", "path", "address");
     }
 
-    static void main(String[] args) {
+    public static void main(String[] args) {
         String registryUrl = MWRegistryClient.readRegistryURL();
         MWRegistryClient reg = new MWRegistryClient(registryUrl);
         reg.autoLogin();
