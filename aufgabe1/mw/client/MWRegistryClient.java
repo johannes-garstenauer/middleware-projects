@@ -14,6 +14,7 @@ import org.glassfish.jersey.client.authentication.HttpAuthenticationFeature;
 import java.io.*;
 import java.net.URI;
 import java.util.Scanner;
+import java.util.function.IntPredicate;
 
 public class MWRegistryClient extends MWShell {
     WebTarget client;
@@ -34,6 +35,7 @@ public class MWRegistryClient extends MWShell {
      */
     public void autoLogin() {
         if (!loginViaFile()) {
+            System.out.println("credentials.txt not found! Falling back to CLI login...");
             loginViaCLI();
         }
     }
@@ -226,7 +228,10 @@ public class MWRegistryClient extends MWShell {
      */
     private static void validateArgument(String arg, String name)
             throws MWWebServiceException {
-        if (arg.isEmpty() || !arg.chars().allMatch(Character::isLetterOrDigit)) {
+        IntPredicate isValidChar = charcode ->
+                Character.isLetterOrDigit(charcode) || charcode == '-' || charcode == '_';
+
+        if (arg.isEmpty() || !arg.chars().allMatch(isValidChar)) {
             throw new MWWebServiceException(
                     "Validation for argument \"" + name+ "\" failed: \"" + arg + "\"");
         }
@@ -250,7 +255,7 @@ public class MWRegistryClient extends MWShell {
 		System.out.println("---------+--------+--------");
 		String[] groups = listGroups();
 		for(String group: groups) {
-			// Get ID statistics
+            // Get ID statistics
 			String numberOfIDs;
 			try {
 				numberOfIDs = getValue(group, "path", "number-of-ids");
@@ -280,8 +285,7 @@ public class MWRegistryClient extends MWShell {
 	@Override
 	protected boolean processCommand(String[] args) throws MWWebServiceException {
 		switch(args[0]) {
-		case "help":
-		case "h":
+		case "help", "h" -> {
 			System.out.println("The following commands are available:\n"
 					+ "  help\n"
 					+ "  list-groups\n"
@@ -295,60 +299,47 @@ public class MWRegistryClient extends MWShell {
 					+ "  path-statistics\n"
 					+ "  quit"
 			);
-			break;
-		case "list-groups":
-		case "lg":
-			String[] groups = listGroups();
-			for(String group: groups) System.out.println(group);
-			break;
-		case "list-services":
-		case "ls":
-			if(args.length < 2) throw new IllegalArgumentException("Usage: list-services <group>");
-			String[] services = listServices(args[1]);
-			for(String service: services) System.out.println(service);
-			break;
-		case "create-service":
-		case "cs":
-			if(args.length < 3) throw new IllegalArgumentException("Usage: create-service <group> <service>");
-			createService(args[1], args[2]);
-			break;
-		case "delete-service":
-		case "ds":
-			if(args.length < 3) throw new IllegalArgumentException("Usage: delete-service <group> <service>");
-			deleteService(args[1], args[2]);
-			break;
-		case "list-keys":
-		case "l":
-			if(args.length < 3) throw new IllegalArgumentException("Usage: list-keys <group> <service>");
-			String[] keys = listKeys(args[1], args[2]);
-			for(String key: keys) System.out.println(key);
-			break;
-		case "get-value":
-		case "g":
-			if(args.length < 4) throw new IllegalArgumentException("Usage: get-value <group> <service> <key>");
-			String value = getValue(args[1], args[2], args[3]);
-			System.out.println(value);
-			break;
-		case "put-value":
-		case "p":
-			if(args.length < 5) throw new IllegalArgumentException("Usage: put-value <group> <service> <key> <value>");
-			putValue(args[1], args[2], args[3], args[4]);
-			break;
-		case "delete-value":
-		case "d":
-			if(args.length < 4) throw new IllegalArgumentException("Usage: delete-value <group> <service> <key>");
-			deleteValue(args[1], args[2], args[3]);
-			break;
-		case "path-statistics":
-		case "ps":
-			printPathStatistics();
-			break;
-		case "exit":
-		case "quit":
-		case "x":
-		case "q":
-			return false;
-		default:
+        }
+		case "list-groups", "lg" -> {
+            String[] groups = listGroups();
+            for (String group : groups) System.out.println(group);
+        }
+		case "list-services", "ls" -> {
+            if (args.length < 2) throw new IllegalArgumentException("Usage: list-services <group>");
+            String[] services = listServices(args[1]);
+            for (String service : services) System.out.println(service);
+        }
+		case "create-service", "cs" -> {
+            if (args.length < 3) throw new IllegalArgumentException("Usage: create-service <group> <service>");
+            createService(args[1], args[2]);
+        }
+		case "delete-service", "ds" -> {
+            if (args.length < 3) throw new IllegalArgumentException("Usage: delete-service <group> <service>");
+            deleteService(args[1], args[2]);
+        }
+		case "list-keys", "l" -> {
+            if (args.length < 3) throw new IllegalArgumentException("Usage: list-keys <group> <service>");
+            String[] keys = listKeys(args[1], args[2]);
+            for (String key : keys) System.out.println(key);
+        }
+		case "get-value", "g" -> {
+            if (args.length < 4) throw new IllegalArgumentException("Usage: get-value <group> <service> <key>");
+            String value = getValue(args[1], args[2], args[3]);
+            System.out.println(value);
+        }
+		case "put-value", "p" -> {
+            if (args.length < 5) throw new IllegalArgumentException("Usage: put-value <group> <service> <key> <value>");
+            putValue(args[1], args[2], args[3], args[4]);
+        }
+		case "delete-value", "d" -> {
+            if (args.length < 4) throw new IllegalArgumentException("Usage: delete-value <group> <service> <key>");
+            deleteValue(args[1], args[2], args[3]);
+        }
+		case "path-statistics", "ps" -> printPathStatistics();
+		case "exit", "quit", "x", "q" -> {
+            return false;
+        }
+		default ->
 			throw new IllegalArgumentException("Unknown command: " + args[0] + "\nUse \"help\" to list available commands");
 		}
 		return true;

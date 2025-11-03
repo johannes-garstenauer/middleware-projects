@@ -17,19 +17,15 @@ import javax.ws.rs.core.GenericType;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.UriBuilder;
 import java.io.IOException;
-import java.net.URI;
+import java.net.*;
 import java.util.*;
 import java.util.stream.Collectors;
-
-//TODO: String int conversion are really silly here
 
 @Singleton
 @Path("path")
 public class MWPathServer implements AutoCloseable {
     private final MWRegistryClient registryClient;
     private final WebTarget facebookClient;
-    
-    //private static final bool I
 
     public MWPathServer(MWRegistryClient registryClient, WebTarget facebookClient) {
         this.registryClient = registryClient;
@@ -136,13 +132,11 @@ public class MWPathServer implements AutoCloseable {
      * @return Map containing all friends for each user that may be on the path
      * between given users.
      */
-    // TODO update for path param
-    // TODO update for counting of calls
-    // TODO time measurements
     private Map<String, Collection<String>> getReducedFriendships(String startID,
                                                                   String endID,
                                                                   MWPath path) {
         Map<String, Collection<String>> result = new HashMap<>(Collections.emptyMap());
+        long total_time = 0;
 
         // Init set of starting and ending points in friendship graph.
         Set<String> startFriendships = new HashSet<>(Collections.emptySet());
@@ -159,7 +153,10 @@ public class MWPathServer implements AutoCloseable {
             for (String startFriend : startFriendships) {
                 List<String> tmp_friendships = null;
                 try {
+                    long start = System.currentTimeMillis();
                     tmp_friendships = getFriends(startFriend);
+                    total_time += System.currentTimeMillis() - start;
+
                     path.numberOfCalls++;
                 } catch (MWWebServiceException e) {
                     System.err.println("Error: could not get friends of user " + startFriend);
@@ -179,7 +176,9 @@ public class MWPathServer implements AutoCloseable {
             for (String endFriend : endFriendships) {
                 List<String> tmp_friendships = null;
                 try {
+                    long start = System.currentTimeMillis();
                     tmp_friendships = getFriends(endFriend);
+                    total_time += System.currentTimeMillis() - start;
                     path.numberOfCalls++;
                 } catch (MWWebServiceException e) {
                     System.err.println("Error: could not get friends of user " + endFriend);
@@ -195,6 +194,7 @@ public class MWPathServer implements AutoCloseable {
 
         } while (!containAnyMatch(startFriendships, endFriendships));
 
+        System.out.println("Retrieved reduced friendships in " + total_time + "ms (w/o batching)");
         return result;
     }
 
@@ -202,6 +202,7 @@ public class MWPathServer implements AutoCloseable {
                                                                   String endID,
                                                                   MWPath path) {
         Map<String, Collection<String>> result = new HashMap<>(Collections.emptyMap());
+        long total_time = 0;
 
         // Init set of starting and ending points in friendship graph.
         Set<String> startFriendships = new HashSet<>(Collections.emptySet());
@@ -215,7 +216,9 @@ public class MWPathServer implements AutoCloseable {
             //StartFreundeskreis := alle Nutzer , die von startID in i Schritten
             // erreichbar sind;
             try {
+                long start = System.currentTimeMillis();
                 Map<String, HashSet<String>> newFriends = getFriends(startFriendships.toArray(new String[0]));
+                total_time += System.currentTimeMillis() - start;
                 path.numberOfCalls++;
 
                 startFriendships.addAll(newFriends.values().stream().flatMap(Set::stream).collect(Collectors.toSet()));
@@ -229,7 +232,9 @@ public class MWPathServer implements AutoCloseable {
             //EndFreundeskreis := alle Nutzer , die von endID in
             // i Schritten erreichbar sind;
             try {
+                long start = System.currentTimeMillis();
                 Map<String, HashSet<String>> newFriends = getFriends(endFriendships.toArray(new String[0]));
+                total_time += System.currentTimeMillis() - start;
                 path.numberOfCalls++;
 
                 endFriendships.addAll(newFriends.values().stream().flatMap(Set::stream).collect(Collectors.toSet()));
@@ -241,6 +246,7 @@ public class MWPathServer implements AutoCloseable {
             }
         } while (!containAnyMatch(startFriendships, endFriendships));
 
+        System.out.println("Retrieved reduced friendships (batched) in " + total_time + "ms");
         return result;
     }
 
@@ -269,16 +275,33 @@ public class MWPathServer implements AutoCloseable {
         URI facebookUri = UriBuilder.fromUri(facebookUriString).build();
         WebTarget facebookClient = ClientBuilder.newClient().target(facebookUri);
 
-        MWPathServer pathServer = new MWPathServer(reg, facebookClient);
-        try {
-            String hostaddr = pathServer.register();
-            URI uri = UriBuilder.fromUri(hostaddr).build();
-            ResourceConfig rc = new ResourceConfig().register(pathServer);
-            HttpServer server = GrizzlyHttpServerFactory.createHttpServer(uri, rc);
-            server.start();
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
+        try (MWPathServer pathServer = new MWPathServer(reg, facebookClient)) {
+            try {
+                String hostaddr = pathServer.register();
+                URI uri = UriBuilder.fromUri(hostaddr).build();
+                ResourceConfig rc = new ResourceConfig().register(pathServer);
+                HttpServer server = GrizzlyHttpServerFactory.createHttpServer(uri, rc);
+                server.start();
 
+                System.out.println("Server running at " + hostaddr);
+                System.out.println("Type \"stop\" to close it.");
+
+                // give the user a way to stop the server gracefully
+                Scanner scanner = new Scanner(System.in);
+                System.out.print("> ");
+                while (!scanner.nextLine().equalsIgnoreCase("stop")) {
+                    System.out.println("Not a valid option.");
+                    System.out.print("> ");
+                }
+                System.out.println("Closing server...");
+                server.shutdown();
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        } catch (MWWebServiceException e) {
+            // closing the path server failed
+            // do nothing
+        }
+        System.out.println("Bye");
     }
 }
