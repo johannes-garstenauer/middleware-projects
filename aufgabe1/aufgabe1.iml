@@ -9,5 +9,6 @@
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="library" name="glassfish.hk2.guice.bridge" level="project" />
     <orderEntry type="library" name="glassfish.jersey.bundles.jaxrs.ri" level="project" />
+    <orderEntry type="library" name="glassfish.jersey.containers.container.grizzly2.http" level="project" />
   </component>
 </module>
