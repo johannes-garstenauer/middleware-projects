@@ -108,7 +108,7 @@ public class MWWebServiceClient extends MWShell {
 
 
     public MWPath path(String startId, String endId, boolean batching) throws MWWebServiceException {
-        try (Response response = pathClient.path("path").queryParam("startID", startId)
+        try (Response response = pathClient.queryParam("startID", startId)
                 .queryParam("endID", endId).queryParam("batching", batching)
                 .request().get()) {
             if (response.getStatus() != 200) {

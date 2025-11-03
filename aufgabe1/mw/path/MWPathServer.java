@@ -36,17 +36,32 @@ public class MWPathServer implements AutoCloseable {
         this.facebookClient = facebookClient;
     }
 
-    public void register() {
-        //this assumes the client is already logged in
+    public String register() {
+        // this method assumes the client is already logged in
+
+        // retrieve address of current network
+        String hostaddr;
+        try (DatagramSocket s = new DatagramSocket()) {
+            s.connect(InetAddress.getByName("8.8.8.8"), 10002);
+            hostaddr = "http://" + s.getLocalAddress().getHostAddress() + ":12345";
+        } catch (SocketException | UnknownHostException e) {
+            System.err.println("Error: Could not retrieve host ip addr!");
+            System.exit(1);
+            return null;
+        }
+
         try {
             registryClient.createService("gruppe1", "path");
             registryClient.putValue("gruppe1", "path",
-                    "address", "http://localhost:12345/");
+                    "address", hostaddr + "/path");
+            System.out.println("Registered path service under " + hostaddr + "/path");
+            return hostaddr;
         } catch (MWWebServiceException e) {
             System.err.println("Error: could not create service!");
             System.err.println(e.getMessage());
             System.exit(1);
         }
+        return null;
     }
 
     @GET
@@ -256,9 +271,8 @@ public class MWPathServer implements AutoCloseable {
 
         MWPathServer pathServer = new MWPathServer(reg, facebookClient);
         try {
-            pathServer.register();
-            URI uri = UriBuilder.fromUri("http://0.0.0.0/")
-                    .port(12345).build();
+            String hostaddr = pathServer.register();
+            URI uri = UriBuilder.fromUri(hostaddr).build();
             ResourceConfig rc = new ResourceConfig().register(pathServer);
             HttpServer server = GrizzlyHttpServerFactory.createHttpServer(uri, rc);
             server.start();
