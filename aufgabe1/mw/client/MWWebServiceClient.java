@@ -13,6 +13,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.function.BiConsumer;
+import org.glassfish.jersey.jsonb.JsonBindingFeature;
 
 
 public class MWWebServiceClient extends MWShell {
@@ -21,7 +22,6 @@ public class MWWebServiceClient extends MWShell {
     MWRegistryClient registryClient;
 
     public MWWebServiceClient(String group, String service, String key) {
-        // initializes the registry Client, the path Server, path Client and facebook client
         String registryUrl = MWRegistryClient.readRegistryURL();
         registryClient = new MWRegistryClient(registryUrl);
         registryClient.autoLogin();
@@ -30,7 +30,7 @@ public class MWWebServiceClient extends MWShell {
         try {
             String pathUri = registryClient.getValue("gruppe1", "path", "address");
             URI pathServerUri = UriBuilder.fromUri(pathUri).build();
-            pathClient = ClientBuilder.newClient().target(pathServerUri);
+            pathClient = ClientBuilder.newClient().register(JsonBindingFeature.class).target(pathServerUri);
         } catch (MWWebServiceException e) {
             System.err.println("Error: path client could not be built!");
             System.err.println(e.getMessage());
@@ -40,7 +40,7 @@ public class MWWebServiceClient extends MWShell {
         try {
             String facebookUriString = registryClient.getValue(group, service, key);
             URI facebookUri = UriBuilder.fromUri(facebookUriString).build();
-            facebookClient = ClientBuilder.newClient().target(facebookUri);
+            facebookClient = ClientBuilder.newClient().register(JsonBindingFeature.class).target(facebookUri);
         } catch (MWWebServiceException e) {
             System.err.println("Error: facebook client could not be built!");
             System.err.println(e.getMessage());
