@@ -7,6 +7,7 @@ import org.glassfish.jersey.grizzly2.httpserver.GrizzlyHttpServerFactory;
 import org.glassfish.jersey.server.ResourceConfig;
 
 import javax.inject.Singleton;
+import javax.ws.rs.DefaultValue;
 import javax.ws.rs.GET;
 import javax.ws.rs.Path;
 import javax.ws.rs.QueryParam;
@@ -63,7 +64,12 @@ public class MWPathServer implements AutoCloseable {
     @GET
     public Response get(@QueryParam("startID") String startID,
                         @QueryParam("endID") String endID,
-                        @QueryParam("batching") boolean batching) {
+                        @QueryParam("batching") @DefaultValue("false") boolean batching) {
+        if (startID == null || endID == null) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity("Missing startID or endID parameter").build();
+        }
+        
         MWPath response = new MWPath();
         Map<String, Collection<String>> friendships;
         if (batching) {
@@ -279,6 +285,7 @@ public class MWPathServer implements AutoCloseable {
             try {
                 String hostaddr = pathServer.register();
                 URI uri = UriBuilder.fromUri(hostaddr).build();
+                System.out.println("uri: " + uri.toString());
                 ResourceConfig rc = new ResourceConfig().register(pathServer);
                 HttpServer server = GrizzlyHttpServerFactory.createHttpServer(uri, rc);
                 server.start();
@@ -287,11 +294,12 @@ public class MWPathServer implements AutoCloseable {
                 System.out.println("Type \"stop\" to close it.");
 
                 // give the user a way to stop the server gracefully
-                Scanner scanner = new Scanner(System.in);
-                System.out.print("> ");
-                while (!scanner.nextLine().equalsIgnoreCase("stop")) {
-                    System.out.println("Not a valid option.");
+                try (Scanner scanner = new Scanner(System.in)) {
                     System.out.print("> ");
+                    while (!scanner.nextLine().equalsIgnoreCase("stop")) {
+                        System.out.println("Not a valid option.");
+                        System.out.print("> ");
+                    }
                 }
                 System.out.println("Closing server...");
                 server.shutdown();
