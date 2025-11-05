@@ -1,6 +1,5 @@
 package mw.client;
 
-import javax.ws.rs.*;
 import javax.ws.rs.client.ClientBuilder;
 import javax.ws.rs.client.Entity;
 import javax.ws.rs.client.WebTarget;
@@ -8,7 +7,6 @@ import javax.ws.rs.core.GenericType;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.UriBuilder;
 
-import org.glassfish.jersey.*;
 import org.glassfish.jersey.client.authentication.HttpAuthenticationFeature;
 
 import java.io.*;
@@ -60,31 +58,34 @@ public class MWRegistryClient extends MWShell {
             return false;
         }
 
-        try {
-            BufferedReader reader = new BufferedReader(new FileReader(file));
-            String username = reader.readLine();
-            String password = reader.readLine();
+        String username, password;
+        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+            username = reader.readLine();
+            password = reader.readLine();
 
             if (password == null) {
                 // end of file detected
                 return false;
             }
-            login(username, password);
-            return true;
         } catch (IOException e) {
             System.err.println("Warning: Could not read auth.txt!");
             System.err.println(e.getMessage());
             return false;
         }
+        
+        login(username, password);
+        return true;
     }
 
     public void loginViaCLI() {
-        Scanner scanner = new Scanner(System.in);
-        System.out.println("Please login to use the registry client!");
-        System.out.print("> Username: ");
-        String username = scanner.nextLine();
-        System.out.print("> Password: ");
-        String password = scanner.nextLine();
+        String username, password;
+        try (Scanner scanner = new Scanner(System.in)) {
+            System.out.println("Please login to use the registry client!");
+            System.out.print("> Username: ");
+            username = scanner.nextLine();
+            System.out.print("> Password: ");
+            password = scanner.nextLine();
+        }
         login(username, password);
     }
 
@@ -372,8 +373,7 @@ public class MWRegistryClient extends MWShell {
             return null;
         }
 
-        try {
-            BufferedReader reader = new BufferedReader(new FileReader(file));
+        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
             return reader.readLine();
         } catch (IOException e) {
             System.err.println("Error: registry.address could not be read!");
