@@ -35,14 +35,17 @@ import software.amazon.awssdk.services.ec2.model.*;
  */
 public class MWCloudPlatformAWS implements MWCloudPlatform {
     private Ec2Client ec2;
-    private static final String IMAGE_ID = "ami-0d4ecc2431e0ef9e1"; // Amazon Linux 2 AMI (HVM), SSD Volume Type
     public static final String INSTANCE_TYPE = "t2.nano";
-    public static final String GROUP_KEY = "gruppe01-new";
 
-    public MWCloudPlatformAWS() {
-        this.ec2 = Ec2Client.builder()
-                .region(Region.EU_WEST_1)
-                .build();
+    public MWCloudPlatformAWS() throws MWCloudException {
+
+        try {
+            this.ec2 = Ec2Client.builder()
+                    .region(Region.EU_WEST_1)
+                    .build();
+        } catch (Exception e) {
+            throw new MWCloudException("Failed to create AWS EC2 client: " + e.getMessage(), e);
+        }
     }
 
     @Override
