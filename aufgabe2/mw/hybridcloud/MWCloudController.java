@@ -7,11 +7,12 @@ import java.util.List;
 
 /***
  * Include in shell
+ * einheitliches MWException Handling
+ *
  * Adapt for both platforms
  * 1) startVM() with instanceRunnning (osc is already blocking!)
- * 2) OSC instances start with "Fehler" -> perform diagnostics
  *
- *
+ * Test authentication in CIP pool
  */
 public class MWCloudController {
 
