@@ -45,8 +45,8 @@ public class MWCloudController {
                 "45d75974-9323-460f-8c84-6a83e0971f5f",
                 "i4.tiny",
                 "6920733b-7246-4cb0-bc76-75369006aba7",
-                "i4labnet",
-                "51b64a40-c9f5-4b12-9a33-de10acc22d59",
+                "internal",
+                "722c8d94-101b-4cab-9910-8701e4d6533b",
                 "4bb56afa-4a07-4f00-aaa7-ec723580be1e",
                 "key-johannes",
                 "#cloud-config\nruncmd:\n - echo 'Hello from MWCloudController' > /home/debian/hello.txt"
@@ -223,9 +223,9 @@ public class MWCloudController {
     public static void main(String[] args) {
         try {
             MWCloudController cloudController = new MWCloudController();
-            //cloudController.startVM(null);
+            cloudController.startVM(null);
 			//cloudController.startVM(null);
-            cloudController.listVMs(null);
+            //cloudController.listVMs(null);
             //cloudController.startVM(null);
             //cloudController.deleteVM(new String[]{"", "i-001f3e7aeb20bf176"});
 			//cloudController.deleteVM(new String[]{"", "27f2b9c1-42ed-4d3d-b8d9-876d7b6609df"});
