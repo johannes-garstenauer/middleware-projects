@@ -11,5 +11,6 @@ public interface MWCloudPlatform {
 	List<MWVirtualMachine> listVMs() throws MWCloudException;
 
 	Double getCPUUsage(MWVirtualMachine vm, int seconds) throws MWCloudException;
-	
+
+	boolean isInstanceRunning(MWVirtualMachine vm) throws MWCloudException;
 }

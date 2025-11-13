@@ -16,11 +16,28 @@ import software.amazon.awssdk.services.ec2.model.*;
  * 3) test functions in controller
  */
 
+/***
+ * CLI commands:
+ * 1) aws ec2 describe-subnets | grep -i subnetid
+ * 2) aws ec2 describe-security-groups --filters Name=group-name,Values=i4mw \
+ * | grep -i -e groupname -e groupid
+ * 3) aws ec2 describe-key-pairs | grep -i -e keyname -e keypairid
+ *
+ * 4) aws ec2 run-instances --instance-type t2.nano \
+ *          --image-id ami-0d4ecc2431e0ef9e1 \
+ *          --key gruppe01-new --user-data="Hello World" \
+ *          --subnet-id subnet-70560917 \
+ *          --security-group-ids sg-03a1e273a226a8b04
+ *
+ * 5) ssh -i ~/.aws/gruppe01-new.pem ec2-user@ec2-54-74-49-196.eu-west-1.compute.amazonaws.com # TODO replace with whichever appropriate
+ *
+ *
+ */
 public class MWCloudPlatformAWS implements MWCloudPlatform {
     private Ec2Client ec2;
-    private static final String IMAGE_ID = "ami-0b44ee2dcf07ee291";
+    private static final String IMAGE_ID = "ami-0d4ecc2431e0ef9e1"; // Amazon Linux 2 AMI (HVM), SSD Volume Type
     public static final String INSTANCE_TYPE = "t2.nano";
-    public static final String GROUP_KEY = "gruppe01-key";
+    public static final String GROUP_KEY = "gruppe01-new";
 
     public MWCloudPlatformAWS() {
         this.ec2 = Ec2Client.builder()
@@ -46,11 +63,12 @@ public class MWCloudPlatformAWS implements MWCloudPlatform {
                     .minCount(1)
                     .maxCount(1)
                     .keyName(conf.keyName)
-                    .userData(Base64.getEncoder().encodeToString(userDataBytes)) //TODO: what to add here?
+                    .userData(Base64.getEncoder().encodeToString(userDataBytes))
                     .monitoring(RunInstancesMonitoringEnabled.builder().enabled(true).build())
                     .securityGroupIds(conf.securityGroup) // z.B. im Web-Interface erstellen
                     .subnetId(conf.networkId) // (VPC muss Security-Group vorab zugeordnet werden)
-                    .build();;
+                    .build();
+            ;
 
             RunInstancesResponse response = ec2.runInstances(request);
 
@@ -81,13 +99,53 @@ public class MWCloudPlatformAWS implements MWCloudPlatform {
         }
     }
 
+    public boolean isInstanceRunning(MWVirtualMachine vm) throws MWCloudException {
+        try {
+            DescribeInstancesRequest request = DescribeInstancesRequest.builder()
+                    .instanceIds(vm.vmId)
+                    .build();
+
+            DescribeInstancesResponse response = ec2.describeInstances(request);
+
+            for (Reservation reservation : response.reservations()) {
+                for (Instance instance : reservation.instances()) {
+                    InstanceStateName state = instance.state().name();
+                    System.out.println("Instance state: " + state);
+                    return state == InstanceStateName.RUNNING;
+                }
+            }
+            return false;
+        } catch (Ec2Exception e) {
+            throw new MWCloudException("AWS EC2 error: " + (e.awsErrorDetails() != null ? e.awsErrorDetails().errorMessage() : e.getMessage()), e);
+        } catch (Exception e) {
+            throw new MWCloudException(e.getMessage(), e);
+        }
+    }
+
     @Override
     public void deleteVM(MWVirtualMachine vm_ref) throws MWCloudException {
-        /*
-         *  TODO: Implement method
-         */
-        return;
+        try {
+            TerminateInstancesRequest request = TerminateInstancesRequest.builder()
+                    .instanceIds(vm_ref.vmId)
+                    .build();
+            TerminateInstancesResponse response = ec2.terminateInstances(request);
+
+            if (response == null || !response.hasTerminatingInstances()) {
+                throw new MWCloudException("No instances were terminated!");
+            }
+
+            for (InstanceStateChange terminated_instance : response.terminatingInstances()) {
+                System.out.println("Terminated instance ID: " + terminated_instance.instanceId() +
+                        ", previous state: " + terminated_instance.previousState().nameAsString() +
+                        ", current state: " + terminated_instance.currentState().nameAsString());
+            }
+        } catch (Ec2Exception e) {
+            throw new MWCloudException("AWS EC2 error: " + (e.awsErrorDetails() != null ? e.awsErrorDetails().errorMessage() : e.getMessage()), e);
+        } catch (Exception e) {
+            throw new MWCloudException(e.getMessage(), e);
+        }
     }
+
 
     @Override
     public List<MWVirtualMachine> listVMs() throws MWCloudException {

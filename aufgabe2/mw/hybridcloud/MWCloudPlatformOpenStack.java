@@ -4,6 +4,12 @@ import java.util.List;
 
 public class MWCloudPlatformOpenStack implements MWCloudPlatform {
 
+	/***
+	 * debian-example
+	 * i4.tiny
+	 */
+
+
 	@Override
 	public MWVirtualMachine startVM(MWVirtualMachineConfig conf) throws MWCloudException {
 		/*
@@ -34,6 +40,11 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
 		 *  TODO: Implement method (optional for 5.0 ECTS)
 		 */
 		return null;
+	}
+
+	@Override
+	public boolean isInstanceRunning(MWVirtualMachine vm) throws MWCloudException {
+		return false;
 	}
 
 }

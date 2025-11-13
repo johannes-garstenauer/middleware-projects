@@ -3,6 +3,7 @@ package mw.hybridcloud;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.util.List;
 
 public class MWCloudController {
 	
@@ -11,27 +12,56 @@ public class MWCloudController {
 	private MWCloudPlatform osc = null;
 	
 	public MWCloudController() {
-		/*
-		 * TODO: Implement constructor (e.g., initialize aws and osc)
-		 */
+		this.aws = new MWCloudPlatformAWS();
 	}
-	
+
+	// TODO blocking
 	private void startVM(String[] args) throws MWCloudException {
-		/*
-		 * TODO: Implement method
-		 */
+		MWVirtualMachineConfig conf = new MWVirtualMachineConfig(
+				"TestVM-from-MWCloudController3",
+				"Amazon Linux 2 AMI",
+				"ami-0b44ee2dcf07ee291", // Example AMI ID
+				null,
+				null,
+				"gruppe01-new",
+				"subnet-70560917",
+				"sg-03a1e273a226a8b04",
+				"gruppe01-new",
+				"#!/bin/bash\n echo 'Hello from MWCloudController2' > /home/ec2-user/hello.txt"
+		);
+		MWVirtualMachine vm = aws.startVM(conf);
+		System.out.println("Starting VM with ID: " + vm.vmId);
+
+		// Block until VM is RUNNING
+		int maxAttempts = 60;
+		int attempt = 0;
+		int sleepTimeSeconds = 3;
+
+		while (attempt < maxAttempts) {
+			if (aws.isInstanceRunning(vm)) {
+				System.out.println("VM is now running.");
+				return;
+			}
+			try {
+				Thread.sleep(sleepTimeSeconds * 1000);
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				throw new MWCloudException("Thread was interrupted while waiting for VM to start.");
+			}
+			attempt++;
+		}
+		throw new MWCloudException("VM" + vm.vmId + "did not reach RUNNING state within the expected time.");
 	}
 	
 	private void deleteVM(String[] args) throws MWCloudException {
-		/*
-		 * TODO: Implement method
-		 */
+		this.aws.deleteVM(new MWVirtualMachine(args[1], "", ""));
 	}
 	
 	private void listVMs(String[] args) throws MWCloudException {
-		/*
-		 * TODO: Implement method
-		 */
+		List<MWVirtualMachine> vms = aws.listVMs();
+		for (MWVirtualMachine vm : vms) {
+			System.out.println("VM ID: " + vm.vmId + ", Name: " + vm.vmName + ", Status: " + vm.lastState);
+		}
 	}
 	
 	private void getCPUUsage(String[] args) throws MWCloudException {
@@ -163,7 +193,20 @@ public class MWCloudController {
 	
 	public static void main(String[] args) {
 		MWCloudController cloudController = new MWCloudController();
-		cloudController.shell();
+		//cloudController.shell();
+
+		try {
+			//cloudController.startVM(null);
+			//cloudController.listVMs(null);
+			//cloudController.startVM(null);
+			cloudController.deleteVM(new String[]{"", "i-001f3e7aeb20bf176"});
+			return;
+		} catch (MWCloudException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+
+
 	}
 	
 }
