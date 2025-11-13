@@ -3,6 +3,7 @@ package mw.hybridcloud;
 import org.openstack4j.api.Builders;
 import org.openstack4j.api.OSClient;
 import org.openstack4j.model.common.Identifier;
+import org.openstack4j.model.compute.Action;
 import org.openstack4j.model.compute.Flavor;
 import org.openstack4j.model.compute.Server;
 import org.openstack4j.model.compute.ServerCreate;
@@ -64,41 +65,54 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
         for (Flavor flavor :client.compute().flavors().list()) {
             System.out.println("Flavor: " + flavor.getName() + " | ID: " + flavor.getId());
         }
-        ServerCreate sc = Builders.server() // org.openstack4j.{model.compute,api}
+        ServerCreate sc = Builders.server()
                 .name(conf.vmName)
                 .userData(conf.userData)
-                .flavor(conf.flavorId) //TODO: what about as Flavor object? flavorName vs flavorId?
-                .image(conf.imageId) //TODO: what about as Image object? imageName vs imageId?
-                .keypairName(conf.keyName) //TODO: hardcoded
+                .flavor(conf.flavorId)
+                .image(conf.imageId)
+                .keypairName(conf.keyName)
                 .networks(List.of(conf.networkId))
                 .addSecurityGroup(conf.securityGroup)
                 .userData(conf.userData)
                 .build();
 
-        Server server = client.compute().servers()
-                .bootAndWaitActive(sc, 60000); // 1 min wait-time
+        try {
+            Server server = client.compute().servers()
+                    .bootAndWaitActive(sc, 60000); // 1 min wait-time
 
-        return new MWVirtualMachine(
-                server.getId(),
-                server.getName(),
-                server.getAccessIPv4() != null ? server.getAccessIPv4() : server.getAccessIPv6()
-                );
+            return new MWVirtualMachine(
+                    server.getId(),
+                    server.getName(),
+                    server.getAccessIPv4() != null ? server.getAccessIPv4() : server.getAccessIPv6()
+            );
+        } catch (Exception e) {
+            throw new MWCloudException("Failed to start VM: " + e.getMessage(), e);
+        }
     }
 
     @Override
     public void deleteVM(MWVirtualMachine vm_ref) throws MWCloudException {
-        /*
-         *  TODO: Implement method
-         */
-        return;
+        try {
+            client.compute().servers().action(vm_ref.vmId, Action.SUSPEND);
+            client.compute().servers().delete(vm_ref.vmId);
+            System.out.println("Deleted VM with ID: " + vm_ref.vmId);
+        } catch (Exception e) {
+            throw new MWCloudException("Failed to delete VM: " + e.getMessage(), e);
+        }
     }
 
     @Override
     public List<MWVirtualMachine> listVMs() throws MWCloudException {
-        /*
-         *  TODO: Implement method
-         */
-        return null;
+        try {
+            List<? extends Server> servers = client.compute().servers().list();
+            return servers.stream().map(server -> new MWVirtualMachine(
+                    server.getId(),
+                    server.getName(),
+                    server.getAccessIPv4() != null ? server.getAccessIPv4() : server.getAccessIPv6()
+            )).toList();
+        } catch (Exception e) {
+            throw new MWCloudException("Failed to list VMs: " + e.getMessage(), e);
+        }
     }
 
     @Override

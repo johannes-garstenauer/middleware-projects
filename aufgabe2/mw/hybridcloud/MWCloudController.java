@@ -8,6 +8,8 @@ import java.util.List;
 /***
  * Include in shell
  * Adapt for both platforms
+ * 1) startVM() with instanceRunnning (osc is already blocking!)
+ * 2) OSC instances start with "Fehler" -> perform diagnostics
  *
  *
  */
@@ -77,12 +79,15 @@ public class MWCloudController {
     }
 
     private void deleteVM(String[] args) throws MWCloudException {
-        this.aws.deleteVM(new MWVirtualMachine(args[1], "", ""));
+        //this.aws.deleteVM(new MWVirtualMachine(args[1], "", ""));
+
+		this.osc.deleteVM(new MWVirtualMachine(args[1], "", ""));
     }
 
     private void listVMs(String[] args) throws MWCloudException {
-        List<MWVirtualMachine> vms = aws.listVMs();
-        for (MWVirtualMachine vm : vms) {
+        //List<MWVirtualMachine> vms = aws.listVMs();
+        List<MWVirtualMachine> vms = osc.listVMs();
+		for (MWVirtualMachine vm : vms) {
             System.out.println("VM ID: " + vm.vmId + ", Name: " + vm.vmName + ", Status: " + vm.lastState);
         }
     }
@@ -218,10 +223,12 @@ public class MWCloudController {
     public static void main(String[] args) {
         try {
             MWCloudController cloudController = new MWCloudController();
-            cloudController.startVM(null);
-            //cloudController.listVMs(null);
+            //cloudController.startVM(null);
+			//cloudController.startVM(null);
+            cloudController.listVMs(null);
             //cloudController.startVM(null);
             //cloudController.deleteVM(new String[]{"", "i-001f3e7aeb20bf176"});
+			//cloudController.deleteVM(new String[]{"", "27f2b9c1-42ed-4d3d-b8d9-876d7b6609df"});
             //throw new MWCloudException("");
         } catch (MWCloudException e) {
             e.printStackTrace();
