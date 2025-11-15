@@ -6,10 +6,8 @@ import java.io.InputStreamReader;
 import java.util.List;
 
 /***
- * - Include in shell
- *
- * Adapt for both platforms
- * 1) startVM() with instanceRunnning (osc is already blocking!)
+ * Erweiterung der Klasse MWCloudController um das Anmelden und Abmelden von virtuellen Maschinen über
+ * die I4-Registry
  *
  * Test authentication in CIP pool
  */
@@ -29,34 +27,38 @@ public class MWCloudController {
 
         // Working configs for both platforms
         /***
-        MWVirtualMachineConfig conf_aws = new MWVirtualMachineConfig(
-                "TestVM-from-MWCloudController3",
-                "Amazon Linux 2 AMI",
-                "ami-0b44ee2dcf07ee291", // Example AMI ID
-                null,
-                null,
-                "gruppe01-new",
-                "subnet-70560917",
-                "sg-03a1e273a226a8b04",
-                "gruppe01-new",
-                "#!/bin/bash\n echo 'Hello from MWCloudController2' > /home/ec2-user/hello.txt"
+         MWVirtualMachineConfig conf_aws = new MWVirtualMachineConfig(
+         "TestVM-from-MWCloudController3",
+         "Amazon Linux 2 AMI",
+         "ami-0b44ee2dcf07ee291", // Example AMI ID
+         null,
+         null,
+         "gruppe01-new",
+         "subnet-70560917",
+         "sg-03a1e273a226a8b04",
+         "gruppe01-new",
+         "#!/bin/bash\n echo 'Hello from MWCloudController2' > /home/ec2-user/hello.txt"
+         );
+
+         MWVirtualMachineConfig conf_osc = new MWVirtualMachineConfig(
+         "TestVM-from-MWCloudController",
+         "debian-example",
+         "45d75974-9323-460f-8c84-6a83e0971f5f",
+         "i4.tiny",
+         "6920733b-7246-4cb0-bc76-75369006aba7",
+         "internal",
+         "722c8d94-101b-4cab-9910-8701e4d6533b",
+         "4bb56afa-4a07-4f00-aaa7-ec723580be1e",
+         "key-johannes",
+         "#cloud-config\nruncmd:\n - echo 'Hello from MWCloudController' > /home/debian/hello.txt"
+         );
+         ***/
+
+        requireArgs(args, 11,
+                "start-vm <vmMame> <imageName> <imageId> <flavorName> <flavorId> <networkName> <networkId> <securityGroup> <keyPair> <userData>"
         );
 
-        MWVirtualMachineConfig conf_osc = new MWVirtualMachineConfig(
-                "TestVM-from-MWCloudController",
-                "debian-example",
-                "45d75974-9323-460f-8c84-6a83e0971f5f",
-                "i4.tiny",
-                "6920733b-7246-4cb0-bc76-75369006aba7",
-                "internal",
-                "722c8d94-101b-4cab-9910-8701e4d6533b",
-                "4bb56afa-4a07-4f00-aaa7-ec723580be1e",
-                "key-johannes",
-                "#cloud-config\nruncmd:\n - echo 'Hello from MWCloudController' > /home/debian/hello.txt"
-        );
-        ***/
-
-        MWVirtualMachineConfig config  = new MWVirtualMachineConfig(
+        MWVirtualMachineConfig config = new MWVirtualMachineConfig(
                 args[1],
                 args[2],
                 args[3],
@@ -100,17 +102,28 @@ public class MWCloudController {
     }
 
     private void deleteVM(String[] args) throws MWCloudException {
-
+        requireArgs(args, 2,
+                "delete-vm <vmId>"
+        );
         // Delete VM by ID only
-        this.platform.deleteVM(new MWVirtualMachine(args[1], args[2], args[3]));
+        this.platform.deleteVM(new MWVirtualMachine(args[1], "", ""));
     }
 
     private void listVMs() throws MWCloudException {
         List<MWVirtualMachine> vms = platform.listVMs();
-		for (MWVirtualMachine vm : vms) {
+        for (MWVirtualMachine vm : vms) {
             System.out.println(vm);
         }
     }
+
+    private void requireArgs(String[] args, int expected, String usage) {
+        if (args.length != expected) {
+            System.out.println(
+                    "Invalid number of arguments.\nUsage: " + usage
+            );
+        }
+    }
+
 
     private void getCPUUsage(String[] args) throws MWCloudException {
         /*

@@ -3,10 +3,7 @@ package mw.hybridcloud;
 import org.openstack4j.api.Builders;
 import org.openstack4j.api.OSClient;
 import org.openstack4j.model.common.Identifier;
-import org.openstack4j.model.compute.Action;
-import org.openstack4j.model.compute.Flavor;
-import org.openstack4j.model.compute.Server;
-import org.openstack4j.model.compute.ServerCreate;
+import org.openstack4j.model.compute.*;
 import org.openstack4j.openstack.OSFactory;
 
 import java.util.Arrays;
@@ -70,7 +67,7 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
                     server.getAddresses().getAddresses().values().stream()
                             .flatMap(List::stream)
                             .findFirst()
-                            .map(addr -> addr.getAddr())
+                            .map(Address::getAddr)
                             .orElse("No IP assigned")
             );
             vm.lastState = server.getStatus().name();
