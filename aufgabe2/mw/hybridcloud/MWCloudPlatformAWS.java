@@ -2,6 +2,9 @@ package mw.hybridcloud;
 
 import java.util.Base64;
 import java.util.List;
+
+import mw.hybridcloud.MWVirtualMachine.MWVirtualMachineProvider;
+
 import java.util.ArrayList;
 
 // import aws sdk from
@@ -87,9 +90,9 @@ public class MWCloudPlatformAWS implements MWCloudPlatform {
                             .map(Tag::value)
                             .findFirst()
                             .orElse("");
-            String address = inst.publicIpAddress() != null ? inst.publicIpAddress() : inst.privateIpAddress();
+            String address = inst.publicIpAddress() != null ? inst.publicIpAddress() : "";
 
-            MWVirtualMachine vm = new MWVirtualMachine(id, name, address);
+            MWVirtualMachine vm = new MWVirtualMachine(id, name, address, MWVirtualMachineProvider.AWS);
             if (inst.state() != null && inst.state().nameAsString() != null) {
                 vm.lastState = inst.state().nameAsString();
             }
@@ -113,7 +116,6 @@ public class MWCloudPlatformAWS implements MWCloudPlatform {
             for (Reservation reservation : response.reservations()) {
                 for (Instance instance : reservation.instances()) {
                     InstanceStateName state = instance.state().name();
-                    System.out.println("Instance state: " + state);
                     return state == InstanceStateName.RUNNING;
                 }
             }
@@ -159,18 +161,7 @@ public class MWCloudPlatformAWS implements MWCloudPlatform {
             List<MWVirtualMachine> vms = new ArrayList<>();
             for (Reservation reservation : resp.reservations()) {
                 for (Instance inst : reservation.instances()) {
-                    String id = inst.instanceId();
-                    String name = inst.tags().stream()
-                            .filter(t -> "Name".equals(t.key()))
-                            .map(t -> t.value())
-                            .findFirst()
-                            .orElse("");
-                    String address = inst.publicIpAddress() != null ? inst.publicIpAddress() : inst.privateIpAddress();
-                    MWVirtualMachine vm = new MWVirtualMachine(id, name, address);
-                    if (inst.state() != null && inst.state().nameAsString() != null) {
-                        vm.lastState = inst.state().nameAsString();
-                    }
-                    vms.add(vm);
+                    vms.add(convertVirtualMachine(inst));
                 }
             }
             return vms;
@@ -179,6 +170,40 @@ public class MWCloudPlatformAWS implements MWCloudPlatform {
         } catch (Exception e) {
             throw new MWCloudException(e.getMessage(), e);
         }
+    }
+
+    @Override
+    public MWVirtualMachine findVM(String id) throws MWCloudException {
+        try {
+            DescribeInstancesRequest req = DescribeInstancesRequest.builder().instanceIds(id).build();
+            DescribeInstancesResponse resp = ec2.describeInstances(req);
+
+            for (Reservation reservation : resp.reservations()) {
+                for (Instance inst : reservation.instances()) {
+                    return convertVirtualMachine(inst);
+                }
+            }
+            return null;
+        } catch (Ec2Exception e) {
+            throw new MWCloudException("AWS EC2 error: " + (e.awsErrorDetails() != null ? e.awsErrorDetails().errorMessage() : e.getMessage()), e);
+        } catch (Exception e) {
+            throw new MWCloudException(e.getMessage(), e);
+        }
+    }
+    
+    MWVirtualMachine convertVirtualMachine(Instance inst) {
+        String id = inst.instanceId();
+        String name = inst.tags().stream()
+                .filter(t -> "Name".equals(t.key()))
+                .map(t -> t.value())
+                .findFirst()
+                .orElse("");
+        String address = inst.publicIpAddress() != null ? inst.publicIpAddress() :"";
+        MWVirtualMachine vm = new MWVirtualMachine(id, name, address, MWVirtualMachineProvider.AWS);
+        if (inst.state() != null && inst.state().nameAsString() != null) {
+            vm.lastState = inst.state().nameAsString();
+        }
+        return vm;
     }
 
     @Override
