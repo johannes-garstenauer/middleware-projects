@@ -6,8 +6,7 @@ import java.io.InputStreamReader;
 import java.util.List;
 
 /***
- * Include in shell
- * einheitliches MWException Handling
+ * - Include in shell
  *
  * Adapt for both platforms
  * 1) startVM() with instanceRunnning (osc is already blocking!)
@@ -25,8 +24,11 @@ public class MWCloudController {
         this.osc = new MWCloudPlatformOpenStack();
     }
 
-    // TODO blocking
+
     private void startVM(String[] args) throws MWCloudException {
+
+        // Working configs for both platforms
+        /***
         MWVirtualMachineConfig conf_aws = new MWVirtualMachineConfig(
                 "TestVM-from-MWCloudController3",
                 "Amazon Linux 2 AMI",
@@ -52,44 +54,60 @@ public class MWCloudController {
                 "key-johannes",
                 "#cloud-config\nruncmd:\n - echo 'Hello from MWCloudController' > /home/debian/hello.txt"
         );
+        ***/
 
+        MWVirtualMachineConfig config  = new MWVirtualMachineConfig(
+                args[0],
+                args[1],
+                args[2],
+                args[3],
+                args[4],
+                args[5],
+                args[6],
+                args[7],
+                args[8],
+                args[9]
+        );
 
-        //MWVirtualMachine vm = aws.startVM(conf_aws);
-        MWVirtualMachine vm = osc.startVM(conf_osc);
-        System.out.println("Starting VM with ID: " + vm.vmId);
+        MWVirtualMachine vm = platform.startVM(config);
 
-        // Block until VM is RUNNING
+        // OpenStack platform starts blocking by default, so we can return here
+        if (platform instanceof MWCloudPlatformOpenStack) {
+            System.out.println("Started: " + vm);
+            return;
+        }
+
+        // Block until AWS VM is RUNNING
         int maxAttempts = 60;
         int attempt = 0;
         int sleepTimeSeconds = 3;
 
         while (attempt < maxAttempts) {
             if (aws.isInstanceRunning(vm)) {
-                System.out.println("VM is now running.");
+                System.out.println("Started: " + vm);
                 return;
             }
             try {
                 Thread.sleep(sleepTimeSeconds * 1000);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                throw new MWCloudException("Thread was interrupted while waiting for VM to start.");
+                throw new MWCloudException("Thread was interrupted while waiting for VM " + vm + " to start.");
             }
             attempt++;
         }
-        throw new MWCloudException("VM" + vm.vmId + "did not reach RUNNING state within the expected time.");
+        throw new MWCloudException("VM" + vm + "did not reach RUNNING state within the expected time.");
     }
 
     private void deleteVM(String[] args) throws MWCloudException {
-        //this.aws.deleteVM(new MWVirtualMachine(args[1], "", ""));
 
-		this.osc.deleteVM(new MWVirtualMachine(args[1], "", ""));
+        // Delete VM by ID only
+        this.platform.deleteVM(new MWVirtualMachine(args[0], "", ""));
     }
 
-    private void listVMs(String[] args) throws MWCloudException {
-        //List<MWVirtualMachine> vms = aws.listVMs();
-        List<MWVirtualMachine> vms = osc.listVMs();
+    private void listVMs() throws MWCloudException {
+        List<MWVirtualMachine> vms = platform.listVMs();
 		for (MWVirtualMachine vm : vms) {
-            System.out.println("VM ID: " + vm.vmId + ", Name: " + vm.vmName + ", Status: " + vm.lastState);
+            System.out.println(vm);
         }
     }
 
@@ -202,7 +220,7 @@ public class MWCloudController {
             case "list":
             case "lv":
             case "ls":
-                listVMs(args);
+                listVMs();
                 break;
             case "get-cpu":
             case "get-cpuu":
@@ -222,20 +240,13 @@ public class MWCloudController {
     }
 
     public static void main(String[] args) {
+        MWCloudController cloudController = null;
         try {
-            MWCloudController cloudController = new MWCloudController();
-            cloudController.startVM(null);
-			//cloudController.startVM(null);
-            //cloudController.listVMs(null);
-            //cloudController.startVM(null);
-            //cloudController.deleteVM(new String[]{"", "i-001f3e7aeb20bf176"});
-			//cloudController.deleteVM(new String[]{"", "27f2b9c1-42ed-4d3d-b8d9-876d7b6609df"});
-            //throw new MWCloudException("");
+            cloudController = new MWCloudController();
         } catch (MWCloudException e) {
-            e.printStackTrace();
-            return;
+            throw new RuntimeException(e);
         }
-        //cloudController.shell();
+        cloudController.shell();
     }
 
 }

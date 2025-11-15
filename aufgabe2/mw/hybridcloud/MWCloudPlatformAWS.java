@@ -9,36 +9,11 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.model.*;
 
-/***
- * TODO:
- * 1) start VM in cli
- * 2) transfer to code
- * 3) test functions in controller
- */
-
-/***
- * CLI commands:
- * 1) aws ec2 describe-subnets | grep -i subnetid
- * 2) aws ec2 describe-security-groups --filters Name=group-name,Values=i4mw \
- * | grep -i -e groupname -e groupid
- * 3) aws ec2 describe-key-pairs | grep -i -e keyname -e keypairid
- *
- * 4) aws ec2 run-instances --instance-type t2.nano \
- *          --image-id ami-0d4ecc2431e0ef9e1 \
- *          --key gruppe01-new --user-data="Hello World" \
- *          --subnet-id subnet-70560917 \
- *          --security-group-ids sg-03a1e273a226a8b04
- *
- * 5) ssh -i ~/.aws/gruppe01-new.pem ec2-user@ec2-54-74-49-196.eu-west-1.compute.amazonaws.com # TODO replace with whichever appropriate
- *
- *
- */
 public class MWCloudPlatformAWS implements MWCloudPlatform {
-    private Ec2Client ec2;
+    private final Ec2Client ec2;
     public static final String INSTANCE_TYPE = "t2.nano";
 
     public MWCloudPlatformAWS() throws MWCloudException {
-
         try {
             this.ec2 = Ec2Client.builder()
                     .region(Region.EU_WEST_1)
@@ -57,7 +32,7 @@ public class MWCloudPlatformAWS implements MWCloudPlatform {
                     .resourceType(ResourceType.INSTANCE)
                     .build();
 
-            byte[] userDataBytes = (conf.userData != null ? conf.userData : "Hello World").getBytes();
+            byte[] userDataBytes = (conf.userData != null ? conf.userData : "<default data>").getBytes();
 
             RunInstancesRequest request = RunInstancesRequest.builder()
                     .imageId(conf.imageId)
@@ -68,10 +43,9 @@ public class MWCloudPlatformAWS implements MWCloudPlatform {
                     .keyName(conf.keyName)
                     .userData(Base64.getEncoder().encodeToString(userDataBytes))
                     .monitoring(RunInstancesMonitoringEnabled.builder().enabled(true).build())
-                    .securityGroupIds(conf.securityGroup) // z.B. im Web-Interface erstellen
-                    .subnetId(conf.networkId) // (VPC muss Security-Group vorab zugeordnet werden)
+                    .securityGroupIds(conf.securityGroup)
+                    .subnetId(conf.networkId)
                     .build();
-            ;
 
             RunInstancesResponse response = ec2.runInstances(request);
 
@@ -102,6 +76,7 @@ public class MWCloudPlatformAWS implements MWCloudPlatform {
         }
     }
 
+    @Override
     public boolean isInstanceRunning(MWVirtualMachine vm) throws MWCloudException {
         try {
             DescribeInstancesRequest request = DescribeInstancesRequest.builder()
@@ -113,7 +88,7 @@ public class MWCloudPlatformAWS implements MWCloudPlatform {
             for (Reservation reservation : response.reservations()) {
                 for (Instance instance : reservation.instances()) {
                     InstanceStateName state = instance.state().name();
-                    System.out.println("Instance state: " + state);
+                    System.out.println(vm.vmId + " | " + vm.vmName + " has state: " + state);
                     return state == InstanceStateName.RUNNING;
                 }
             }
@@ -138,7 +113,7 @@ public class MWCloudPlatformAWS implements MWCloudPlatform {
             }
 
             for (InstanceStateChange terminated_instance : response.terminatingInstances()) {
-                System.out.println("Terminated instance ID: " + terminated_instance.instanceId() +
+                System.out.println("Terminated: " + terminated_instance.instanceId() +
                         ", previous state: " + terminated_instance.previousState().nameAsString() +
                         ", current state: " + terminated_instance.currentState().nameAsString());
             }

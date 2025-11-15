@@ -14,12 +14,7 @@ import java.util.List;
 
 public class MWCloudPlatformOpenStack implements MWCloudPlatform {
 
-    /***
-     * debian-example
-     * i4.tiny
-     */
-
-    private OSClient.OSClientV3 client;
+    private final OSClient.OSClientV3 client;
 
 
     public MWCloudPlatformOpenStack() throws MWCloudException {
@@ -28,21 +23,11 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
         String authUrl = System.getenv("OS_AUTH_URL");
         String projectId = System.getenv("OS_PROJECT_ID");
         String domainName = System.getenv("OS_USER_DOMAIN_NAME");
-        try {
-            if (user == null || pass == null || authUrl == null || projectId == null || domainName == null) {
-                /***
-                 *System.out.printf("User: %s\n", user);
-                 *System.out.printf("Pass: %s\n", pass);
-                 *System.out.printf("Auth URL: %s\n", authUrl);
-                 *System.out.printf("Project ID: %s\n", projectId);
-                 * System.out.printf("Domain Name: %s\n", domainName);
-                 ***/
-                throw new IllegalArgumentException("One or more required OpenStack environment variables are not set.");
-            }
-        } catch (IllegalArgumentException e) {
-            System.err.println("Error: " + e.getMessage());
-            System.err.println("Please ensure OS_USERNAME, OS_PASSWORD, OS_AUTH_URL, OS_PROJECT_ID, and OS_USER_DOMAIN_NAME are set.");
-            throw e;
+
+        if (user == null || pass == null || authUrl == null || projectId == null || domainName == null) {
+            throw new MWCloudException("One or more required OpenStack environment variables are not set:" +
+                    "\n " +
+                    "OS_USERNAME, OS_PASSWORD, OS_AUTH_URL, OS_PROJECT_ID, and OS_USER_DOMAIN_NAME.");
         }
 
         Identifier userDomainName = Identifier.byName(domainName);
@@ -61,10 +46,6 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
 
     @Override
     public MWVirtualMachine startVM(MWVirtualMachineConfig conf) throws MWCloudException {
-
-        for (Flavor flavor :client.compute().flavors().list()) {
-            System.out.println("Flavor: " + flavor.getName() + " | ID: " + flavor.getId());
-        }
         ServerCreate sc = Builders.server()
                 .name(conf.vmName)
                 .userData(conf.userData)
@@ -78,7 +59,7 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
 
         try {
             Server server = client.compute().servers()
-                    .bootAndWaitActive(sc, 60000); // 1 min wait-time
+                    .bootAndWaitActive(sc, 60000); // 1 min. max wait-time
 
             return new MWVirtualMachine(
                     server.getId(),
@@ -95,9 +76,9 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
         try {
             client.compute().servers().action(vm_ref.vmId, Action.SUSPEND);
             client.compute().servers().delete(vm_ref.vmId);
-            System.out.println("Deleted VM with ID: " + vm_ref.vmId);
+            System.out.println("Deleted VM: " + vm_ref);
         } catch (Exception e) {
-            throw new MWCloudException("Failed to delete VM: " + e.getMessage(), e);
+            throw new MWCloudException("Failed to delete VM:" + vm_ref + e.getMessage(), e);
         }
     }
 
