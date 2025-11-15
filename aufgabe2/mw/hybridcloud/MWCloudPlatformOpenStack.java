@@ -103,11 +103,19 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
     public List<MWVirtualMachine> listVMs() throws MWCloudException {
         try {
             List<? extends Server> servers = client.compute().servers().list();
-            return servers.stream().map(server -> new MWVirtualMachine(
+
+            List<MWVirtualMachine> vms = servers.stream().map(server -> new MWVirtualMachine(
                     server.getId(),
                     server.getName(),
-                    server.getAccessIPv4() != null ? server.getAccessIPv4() : server.getAccessIPv6()
+                    server.getAddresses().getAddresses("internal").stream()
+                        .filter(addr -> addr.getType().equals("floating") && addr.getVersion() == 4)
+                        .map(Address::getAddr)
+                        .findFirst()
+                        .orElse(server.getAddresses().getAddresses("internal").getFirst().getAddr())
             )).toList();
+
+            vms.forEach(vm -> vm.lastState = client.compute().servers().get(vm.vmId).getStatus().name());
+            return vms;
         } catch (Exception e) {
             throw new MWCloudException("Failed to list VMs: " + e.getMessage(), e);
         }
