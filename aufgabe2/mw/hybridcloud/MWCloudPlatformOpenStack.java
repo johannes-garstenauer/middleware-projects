@@ -2,12 +2,14 @@ package mw.hybridcloud;
 
 import org.openstack4j.api.Builders;
 import org.openstack4j.api.OSClient;
+import org.openstack4j.model.common.ActionResponse;
 import org.openstack4j.model.common.Identifier;
 import org.openstack4j.model.compute.Action;
 import org.openstack4j.model.compute.Flavor;
 import org.openstack4j.model.compute.Server;
 import org.openstack4j.model.compute.ServerCreate;
 import org.openstack4j.openstack.OSFactory;
+import org.openstack4j.openstack.compute.domain.NovaFloatingIP;
 
 import java.util.Arrays;
 import java.util.List;
@@ -66,14 +68,20 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
             Server server = client.compute().servers()
                     .bootAndWaitActive(sc, 60000); // 1 min. max wait-time
 
+            NovaFloatingIP floatingIp = (NovaFloatingIP) client.compute().floatingIps().list().stream()
+                    .filter(floatingIP -> floatingIP.getInstanceId() == null)
+                    .findFirst()
+                    .orElseThrow(() -> new MWCloudException("No available floating IPs found"));
+
+            ActionResponse r = client.compute().floatingIps().addFloatingIP(server, floatingIp.getFloatingIpAddress());
+            if (!r.isSuccess()) {
+                throw new MWCloudException("Failed to associate floating IP: " + r.getFault());
+            }
+
             MWVirtualMachine vm = new MWVirtualMachine(
                     server.getId(),
                     server.getName(),
-                    server.getAddresses().getAddresses().values().stream()
-                            .flatMap(List::stream)
-                            .findFirst()
-                            .map(addr -> addr.getAddr())
-                            .orElse(""),
+                    floatingIp.getFloatingIpAddress(),
                     MWVirtualMachineProvider.OPENSTACK
             );
             vm.lastState = server.getStatus().name();
@@ -99,7 +107,12 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
     public List<MWVirtualMachine> listVMs() throws MWCloudException {
         try {
             List<? extends Server> servers = client.compute().servers().list();
-            return servers.stream().map(server -> convertVirtualMachine(server)).toList();
+
+            List<MWVirtualMachine> vms = servers.stream().map(server -> convertVirtualMachine(server)
+            )).toList();
+
+            vms.forEach(vm -> vm.lastState = client.compute().servers().get(vm.vmId).getStatus().name());
+            return vms;
         } catch (Exception e) {
             throw new MWCloudException("Failed to list VMs: " + e.getMessage(), e);
         }
@@ -117,10 +130,14 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
 
     private MWVirtualMachine convertVirtualMachine(Server server) {
         return new MWVirtualMachine(
-            server.getId(),
-            server.getName(),
-            server.getAccessIPv4() != null ? server.getAccessIPv4() : "",
-            MWVirtualMachineProvider.OPENSTACK
+                server.getId(),
+                server.getName(),
+                server.getAddresses().getAddresses("internal").stream()
+                        .filter(addr -> addr.getType().equals("floating") && addr.getVersion() == 4)
+                        .map(Address::getAddr)
+                        .findFirst()
+                        .orElse(server.getAddresses().getAddresses("internal").getFirst().getAddr()),
+                MWVirtualMachineProvider.OPENSTACK
         );
     }
 

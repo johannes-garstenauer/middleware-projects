@@ -15,10 +15,8 @@ import mw.client.MWWebServiceException;
 import mw.hybridcloud.MWVirtualMachine.MWVirtualMachineProvider;
 
 /***
- * - Include in shell
- *
- * Adapt for both platforms
- * 1) startVM() with instanceRunnning (osc is already blocking!)
+ * Erweiterung der Klasse MWCloudController um das Anmelden und Abmelden von virtuellen Maschinen über
+ * die I4-Registry
  *
  * Test authentication in CIP pool
  */
@@ -38,10 +36,10 @@ public class MWCloudController {
 
     /**
      * Bring the registry into the right state.
-     * 
+     *
      * This will avoid issues when this controller is force quit
      * and the state of the vms changed until the next start of the controller.
-     * @throws MWCloudException 
+     * @throws MWCloudException
      */
     public void updateRegistryInstanceState() throws MWCloudException {
         Map<Boolean, List<MWVirtualMachine>> vms = Stream.concat(
@@ -92,7 +90,7 @@ public class MWCloudController {
             throw new MWCloudException(e);
         }
 
-        // delete all urls from registry of vms that do not appear to be online anymore 
+        // delete all urls from registry of vms that do not appear to be online anymore
         urls.stream().filter(offlineVMs::contains).forEach(url -> {
             try {
                 instanceManager.removeInstance(url);
@@ -142,7 +140,11 @@ public class MWCloudController {
         );
         ***/
 
-        MWVirtualMachineConfig config  = new MWVirtualMachineConfig(
+        requireArgs(args, 11,
+                "start-vm <vmMame> <imageName> <imageId> <flavorName> <flavorId> <networkName> <networkId> <securityGroup> <keyPair> <userData>"
+        );
+
+        MWVirtualMachineConfig config = new MWVirtualMachineConfig(
                 args[1],
                 args[2],
                 args[3],
@@ -202,7 +204,7 @@ public class MWCloudController {
                 System.out.println("Added url " + vm.address + " to registry");
             } catch (MWWebServiceException e) {
                 System.err.println("Could not add VM to registry: " + e.getMessage());
-                System.err.println("Please try to restart this controller to automatically" + 
+                System.err.println("Please try to restart this controller to automatically" +
                     " update the registry to the correct state");
                 e.printStackTrace();
             }
@@ -214,10 +216,9 @@ public class MWCloudController {
     }
 
     private void deleteVM(String[] args) throws MWCloudException {
-        if (args.length != 2) {
-            System.out.println("Usage: delete [vmId]");
-            return;
-        }
+        requireArgs(args, 2,
+                "delete-vm <vmId>"
+        );
 
         String vmId = args[1];
         // MWVirtualMachineProvider provider = MWVirtualMachineProvider.fromString(args[2]);
@@ -247,14 +248,26 @@ public class MWCloudController {
         } else {
             System.err.println(String.format("VM  %s (%s) does not contain a public address!", machine.vmName, machine.vmId));
         }
+
+        // Delete VM by ID only
+        this.platform.deleteVM(new MWVirtualMachine(args[1], "", ""));
     }
 
     private void listVMs() throws MWCloudException {
         List<MWVirtualMachine> vms = platform.listVMs();
-		for (MWVirtualMachine vm : vms) {
+        for (MWVirtualMachine vm : vms) {
             System.out.println(vm);
         }
     }
+
+    private void requireArgs(String[] args, int expected, String usage) {
+        if (args.length != expected) {
+            System.out.println(
+                    "Invalid number of arguments.\nUsage: " + usage
+            );
+        }
+    }
+
 
     private void getCPUUsage(String[] args) throws MWCloudException {
         /*
