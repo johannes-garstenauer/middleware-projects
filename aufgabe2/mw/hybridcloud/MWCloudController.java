@@ -211,8 +211,6 @@ public class MWCloudController {
         } else {
             System.err.println(String.format("VM  %s (%s) does not contain a public address!", vm.vmName, vm.vmId));
         }
-
-        throw new MWCloudException("VM" + vm + "did not reach RUNNING state within the expected time.");
     }
 
     private void deleteVM(String[] args) throws MWCloudException {
@@ -250,7 +248,7 @@ public class MWCloudController {
         }
 
         // Delete VM by ID only
-        this.platform.deleteVM(new MWVirtualMachine(args[1], "", ""));
+        this.platform.deleteVM(new MWVirtualMachine(args[1], "", "", null));
     }
 
     private void listVMs() throws MWCloudException {

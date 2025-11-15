@@ -5,7 +5,7 @@ import org.openstack4j.api.OSClient;
 import org.openstack4j.model.common.ActionResponse;
 import org.openstack4j.model.common.Identifier;
 import org.openstack4j.model.compute.Action;
-import org.openstack4j.model.compute.Flavor;
+import org.openstack4j.model.compute.Address;
 import org.openstack4j.model.compute.Server;
 import org.openstack4j.model.compute.ServerCreate;
 import org.openstack4j.openstack.OSFactory;
@@ -97,7 +97,7 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
         try {
             client.compute().servers().action(vm_ref.vmId, Action.SUSPEND);
             client.compute().servers().delete(vm_ref.vmId);
-            System.out.println("Deleted VM: " + vm_ref);
+            System.out.println("Deleted VM: " + vm_ref.vmId);
         } catch (Exception e) {
             throw new MWCloudException("Failed to delete VM:" + vm_ref + e.getMessage(), e);
         }
@@ -108,8 +108,7 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
         try {
             List<? extends Server> servers = client.compute().servers().list();
 
-            List<MWVirtualMachine> vms = servers.stream().map(server -> convertVirtualMachine(server)
-            )).toList();
+            List<MWVirtualMachine> vms = servers.stream().map(this::convertVirtualMachine).toList();
 
             vms.forEach(vm -> vm.lastState = client.compute().servers().get(vm.vmId).getStatus().name());
             return vms;
