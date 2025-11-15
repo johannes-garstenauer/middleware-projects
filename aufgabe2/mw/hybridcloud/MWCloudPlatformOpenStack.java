@@ -12,6 +12,8 @@ import org.openstack4j.openstack.OSFactory;
 import java.util.Arrays;
 import java.util.List;
 
+import mw.hybridcloud.MWVirtualMachine.MWVirtualMachineProvider;
+
 
 public class MWCloudPlatformOpenStack implements MWCloudPlatform {
 
@@ -71,7 +73,8 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
                             .flatMap(List::stream)
                             .findFirst()
                             .map(addr -> addr.getAddr())
-                            .orElse("No IP assigned")
+                            .orElse(""),
+                    MWVirtualMachineProvider.OPENSTACK
             );
             vm.lastState = server.getStatus().name();
             return vm;
@@ -96,14 +99,29 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
     public List<MWVirtualMachine> listVMs() throws MWCloudException {
         try {
             List<? extends Server> servers = client.compute().servers().list();
-            return servers.stream().map(server -> new MWVirtualMachine(
-                    server.getId(),
-                    server.getName(),
-                    server.getAccessIPv4() != null ? server.getAccessIPv4() : server.getAccessIPv6()
-            )).toList();
+            return servers.stream().map(server -> convertVirtualMachine(server)).toList();
         } catch (Exception e) {
             throw new MWCloudException("Failed to list VMs: " + e.getMessage(), e);
         }
+    }
+
+    @Override
+    public MWVirtualMachine findVM(String id) throws MWCloudException {
+        try {
+            Server server = client.compute().servers().get(id);
+            return server == null ? null : convertVirtualMachine(server);
+        } catch (Exception e) {
+            throw new MWCloudException("Failed to list VMs: " + e.getMessage(), e);
+        }
+    }
+
+    private MWVirtualMachine convertVirtualMachine(Server server) {
+        return new MWVirtualMachine(
+            server.getId(),
+            server.getName(),
+            server.getAccessIPv4() != null ? server.getAccessIPv4() : "",
+            MWVirtualMachineProvider.OPENSTACK
+        );
     }
 
     @Override

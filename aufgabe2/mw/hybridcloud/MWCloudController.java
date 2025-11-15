@@ -4,6 +4,15 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
+import mw.client.MWRegistryClient;
+import mw.client.MWServiceInstanceManager;
+import mw.client.MWWebServiceException;
+import mw.hybridcloud.MWVirtualMachine.MWVirtualMachineProvider;
 
 /***
  * - Include in shell
@@ -18,12 +27,89 @@ public class MWCloudController {
     private MWCloudPlatform platform = null;
     private MWCloudPlatform aws = null;
     private MWCloudPlatform osc = null;
+    private MWServiceInstanceManager instanceManager;
 
     public MWCloudController() throws MWCloudException {
         this.aws = new MWCloudPlatformAWS();
         this.osc = new MWCloudPlatformOpenStack();
+        instanceManager = new MWServiceInstanceManager(MWRegistryClient.readRegistryURL(), "gruppe1", "tweet");
+        instanceManager.autoLogin();
     }
 
+    /**
+     * Bring the registry into the right state.
+     * 
+     * This will avoid issues when this controller is force quit
+     * and the state of the vms changed until the next start of the controller.
+     * @throws MWCloudException 
+     */
+    public void updateRegistryInstanceState() throws MWCloudException {
+        Map<Boolean, List<MWVirtualMachine>> vms = Stream.concat(
+            aws.listVMs().stream(),
+            osc.listVMs().stream()
+        ).collect(Collectors.partitioningBy(vm -> {
+            try {
+                return getCorrespondingPlatform(vm).isInstanceRunning(vm);
+            } catch (MWCloudException e) {
+                System.err.println("Could not check whether vm instance is running: " + vm.toString());
+                e.printStackTrace();
+
+                // even though we do not know the state of the vm
+                // we return true here so we keep it in the registry
+                return true;
+            }
+        }));
+
+        // logging
+        System.out.println("################## Offline VMs ##################");
+        vms.get(false).stream().forEach(System.out::println);
+        if (vms.get(false).isEmpty()) {
+            System.out.println("[None]");
+        }
+        System.out.println("\n################## Online VMs ##################");
+        vms.get(true).stream().forEach(System.out::println);
+        if (vms.get(true).isEmpty()) {
+            System.out.println("[None]");
+        }
+        System.out.println();
+
+        // filter not earlier due to logging
+        Function<List<MWVirtualMachine>, List<String>> transformVMs = list -> {
+            return list
+                .stream()
+                .filter(vm -> vm.address != null && !vm.address.strip().isEmpty())
+                .map(vm -> "http://" + vm.address + "/tweetservice")
+                .toList();
+        };
+
+        List<String> offlineVMs = transformVMs.apply(vms.get(false));
+        List<String> onlineVMs = transformVMs.apply(vms.get(true));
+
+        List<String> urls;
+        try {
+            urls = instanceManager.listInstances(null);
+        } catch (MWWebServiceException e) {
+            throw new MWCloudException(e);
+        }
+
+        // delete all urls from registry of vms that do not appear to be online anymore 
+        urls.stream().filter(offlineVMs::contains).forEach(url -> {
+            try {
+                instanceManager.removeInstance(url);
+            } catch (MWWebServiceException e) {
+                System.err.println("Could not remove instance: " + e.getMessage());
+            }
+        });
+
+        // add missing urls to registry of vms that were not yet added
+        onlineVMs.stream().filter(url -> !urls.contains(url)).forEach(url -> {
+            try {
+                instanceManager.addInstance("http://" + url + "/tweetservice");
+            } catch (MWWebServiceException e) {
+                System.err.println("Could not add instance: " + e.getMessage());
+            }
+        });
+    }
 
     private void startVM(String[] args) throws MWCloudException {
 
@@ -32,27 +118,27 @@ public class MWCloudController {
         MWVirtualMachineConfig conf_aws = new MWVirtualMachineConfig(
                 "TestVM-from-MWCloudController3",
                 "Amazon Linux 2 AMI",
-                "ami-0b44ee2dcf07ee291", // Example AMI ID
+                "ami-0b44ee2dcf07ee291",
                 null,
                 null,
                 "gruppe01-new",
                 "subnet-70560917",
                 "sg-03a1e273a226a8b04",
                 "gruppe01-new",
-                "#!/bin/bash\n echo 'Hello from MWCloudController2' > /home/ec2-user/hello.txt"
+                "group=gruppe1-bucket;jar=mwtweetservice.jar;class=mw.hybridcloud.MWTweetService;parameters=http://0.0.0.0"
         );
 
         MWVirtualMachineConfig conf_osc = new MWVirtualMachineConfig(
                 "TestVM-from-MWCloudController",
-                "debian-example",
-                "45d75974-9323-460f-8c84-6a83e0971f5f",
+                "debian",
+                "98b974a6-b89b-439d-b9b5-2283b509ecdb",
                 "i4.tiny",
                 "6920733b-7246-4cb0-bc76-75369006aba7",
                 "internal",
                 "722c8d94-101b-4cab-9910-8701e4d6533b",
                 "4bb56afa-4a07-4f00-aaa7-ec723580be1e",
-                "key-johannes",
-                "#cloud-config\nruncmd:\n - echo 'Hello from MWCloudController' > /home/debian/hello.txt"
+                "gruppe1",
+                "group=gruppe1-bucket;jar=mwtweetservice.jar;class=mw.hybridcloud.MWTweetService;parameters=http://0.0.0.0"
         );
         ***/
 
@@ -71,38 +157,96 @@ public class MWCloudController {
 
         MWVirtualMachine vm = platform.startVM(config);
 
-        // OpenStack platform starts blocking by default, so we can return here
+        // wait until instance is started
         if (platform instanceof MWCloudPlatformOpenStack) {
-            System.out.println("Started: " + vm);
-            return;
+            // do nothing as the OpenStack platform starts blocking by default
+        } else if (platform instanceof MWCloudPlatformAWS) {
+            // wait until AWS VM is running
+            int maxAttempts = 120;
+
+            int attempt = 0;
+            int sleepTimeSeconds = 3;
+
+            System.out.print("Waiting for instance...");
+            while (attempt < maxAttempts) {
+                if (platform.isInstanceRunning(vm)) {
+                    break;
+                }
+
+                try {
+                    Thread.sleep(sleepTimeSeconds * 1000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new MWCloudException("Thread was interrupted while waiting for VM " + vm + " to start.");
+                }
+                System.out.print(".");
+                attempt++;
+            }
+
+            // break line of waiting string
+            System.out.println();
+
+        } else {
+            throw new IllegalStateException("Unknown platform");
         }
 
-        // Block until AWS VM is RUNNING
-        int maxAttempts = 60;
-        int attempt = 0;
-        int sleepTimeSeconds = 3;
+        vm.lastState = "running";
 
-        while (attempt < maxAttempts) {
-            if (aws.isInstanceRunning(vm)) {
-                vm.lastState = "running";
-                System.out.println("Started: " + vm);
-                return;
-            }
+        System.out.println("Started: " + vm);
+
+        // update vm state to get up-to-date address
+        vm = getCorrespondingPlatform(vm).findVM(vm.vmId);
+        if (vm.address != null && !vm.address.isEmpty()) {
             try {
-                Thread.sleep(sleepTimeSeconds * 1000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new MWCloudException("Thread was interrupted while waiting for VM " + vm + " to start.");
+                instanceManager.addInstance("http://" + vm.address + "/tweetservice");
+                System.out.println("Added url " + vm.address + " to registry");
+            } catch (MWWebServiceException e) {
+                System.err.println("Could not add VM to registry: " + e.getMessage());
+                System.err.println("Please try to restart this controller to automatically" + 
+                    " update the registry to the correct state");
+                e.printStackTrace();
             }
-            attempt++;
+        } else {
+            System.err.println(String.format("VM  %s (%s) does not contain a public address!", vm.vmName, vm.vmId));
         }
+
         throw new MWCloudException("VM" + vm + "did not reach RUNNING state within the expected time.");
     }
 
     private void deleteVM(String[] args) throws MWCloudException {
+        if (args.length != 2) {
+            System.out.println("Usage: delete [vmId]");
+            return;
+        }
 
-        // Delete VM by ID only
-        this.platform.deleteVM(new MWVirtualMachine(args[1], args[2], args[3]));
+        String vmId = args[1];
+        // MWVirtualMachineProvider provider = MWVirtualMachineProvider.fromString(args[2]);
+        // if (provider == null) {
+        //     System.out.println("Provider " + args[2] + " not found!");
+        //     return;
+        // }
+
+        MWVirtualMachine machine = platform.findVM(vmId);
+        if (machine == null) {
+            System.out.println("Instance with id " + args[1] + " not found!");
+            return;
+        }
+
+        platform.deleteVM(machine);
+        if (machine.address != null && !machine.address.isEmpty()) {
+            try {
+                // may also throw an exception if the address was not part of the registry before
+                instanceManager.removeInstance(machine.address);
+                System.out.println("Removed url " + machine.address + " from registry");
+            } catch (MWWebServiceException e) {
+                System.err.println("Could not remove VM from registry: " + e.getMessage());
+                System.err.println("Please try to restart this controller to automatically" +
+                    " update the registry to the correct state");
+                e.printStackTrace();
+            }
+        } else {
+            System.err.println(String.format("VM  %s (%s) does not contain a public address!", machine.vmName, machine.vmId));
+        }
     }
 
     private void listVMs() throws MWCloudException {
@@ -240,10 +384,25 @@ public class MWCloudController {
         return true;
     }
 
+    public MWCloudPlatform getCorrespondingPlatform(MWVirtualMachine vm) {
+        return getCorrespondingPlatform(vm.provider);
+    }
+
+    public MWCloudPlatform getCorrespondingPlatform(MWVirtualMachineProvider provider) {
+        return switch (provider) {
+            case MWVirtualMachineProvider.OPENSTACK -> osc;
+            case MWVirtualMachineProvider.AWS -> aws;
+            default -> {
+                throw new IllegalArgumentException("Provider not handled");
+            }
+        };
+    }
+
     public static void main(String[] args) {
         MWCloudController cloudController = null;
         try {
             cloudController = new MWCloudController();
+            cloudController.updateRegistryInstanceState();
         } catch (MWCloudException e) {
             throw new RuntimeException(e);
         }
