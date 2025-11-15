@@ -57,7 +57,6 @@ public class MWCloudController {
         ***/
 
         MWVirtualMachineConfig config  = new MWVirtualMachineConfig(
-                args[0],
                 args[1],
                 args[2],
                 args[3],
@@ -66,7 +65,8 @@ public class MWCloudController {
                 args[6],
                 args[7],
                 args[8],
-                args[9]
+                args[9],
+                args[10]
         );
 
         MWVirtualMachine vm = platform.startVM(config);
@@ -84,6 +84,7 @@ public class MWCloudController {
 
         while (attempt < maxAttempts) {
             if (aws.isInstanceRunning(vm)) {
+                vm.lastState = "running";
                 System.out.println("Started: " + vm);
                 return;
             }
@@ -101,7 +102,7 @@ public class MWCloudController {
     private void deleteVM(String[] args) throws MWCloudException {
 
         // Delete VM by ID only
-        this.platform.deleteVM(new MWVirtualMachine(args[0], "", ""));
+        this.platform.deleteVM(new MWVirtualMachine(args[1], "", ""));
     }
 
     private void listVMs() throws MWCloudException {
@@ -248,5 +249,15 @@ public class MWCloudController {
         }
         cloudController.shell();
     }
-
 }
+
+/*** DEMO COMMANDS
+ *
+ * 1)
+ * sp aws
+ * start-vm testVM - ami-0b44ee2dcf07ee291 - - - subnet-70560917 sg-03a1e273a226a8b04 gruppe01-new example_data
+ *
+ *
+ *
+ *
+ */
