@@ -2,9 +2,13 @@ package mw.hybridcloud;
 
 import org.openstack4j.api.Builders;
 import org.openstack4j.api.OSClient;
+import org.openstack4j.model.common.ActionResponse;
 import org.openstack4j.model.common.Identifier;
 import org.openstack4j.model.compute.*;
+import org.openstack4j.model.network.FloatingIP;
+import org.openstack4j.model.network.Port;
 import org.openstack4j.openstack.OSFactory;
+import org.openstack4j.openstack.compute.domain.NovaFloatingIP;
 
 import java.util.Arrays;
 import java.util.List;
@@ -61,14 +65,20 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
             Server server = client.compute().servers()
                     .bootAndWaitActive(sc, 60000); // 1 min. max wait-time
 
+            NovaFloatingIP floatingIp = (NovaFloatingIP) client.compute().floatingIps().list().stream()
+                    .filter(floatingIP -> floatingIP.getInstanceId() == null)
+                    .findFirst()
+                    .orElseThrow(() -> new MWCloudException("No available floating IPs found"));
+
+            ActionResponse r = client.compute().floatingIps().addFloatingIP(server, floatingIp.getFloatingIpAddress());
+            if (!r.isSuccess()) {
+                throw new MWCloudException("Failed to associate floating IP: " + r.getFault());
+            }
+
             MWVirtualMachine vm = new MWVirtualMachine(
                     server.getId(),
                     server.getName(),
-                    server.getAddresses().getAddresses().values().stream()
-                            .flatMap(List::stream)
-                            .findFirst()
-                            .map(Address::getAddr)
-                            .orElse("No IP assigned")
+                    floatingIp.getFloatingIpAddress()
             );
             vm.lastState = server.getStatus().name();
             return vm;
