@@ -9,6 +9,7 @@ import org.openstack4j.model.compute.Server;
 import org.openstack4j.model.compute.ServerCreate;
 import org.openstack4j.openstack.OSFactory;
 
+import java.util.Arrays;
 import java.util.List;
 
 
@@ -46,6 +47,8 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
 
     @Override
     public MWVirtualMachine startVM(MWVirtualMachineConfig conf) throws MWCloudException {
+        byte[] userDataBase64 = conf.userData != null ? conf.userData.getBytes() : null;
+
         ServerCreate sc = Builders.server()
                 .name(conf.vmName)
                 .userData(conf.userData)
@@ -54,18 +57,25 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
                 .keypairName(conf.keyName)
                 .networks(List.of(conf.networkId))
                 .addSecurityGroup(conf.securityGroup)
-                .userData(conf.userData)
+                .userData(Arrays.toString(userDataBase64))
                 .build();
 
         try {
             Server server = client.compute().servers()
                     .bootAndWaitActive(sc, 60000); // 1 min. max wait-time
 
-            return new MWVirtualMachine(
+            MWVirtualMachine vm = new MWVirtualMachine(
                     server.getId(),
                     server.getName(),
-                    server.getAccessIPv4() != null ? server.getAccessIPv4() : server.getAccessIPv6()
+                    server.getAddresses().getAddresses().values().stream()
+                            .flatMap(List::stream)
+                            .findFirst()
+                            .map(addr -> addr.getAddr())
+                            .orElse("No IP assigned")
             );
+            vm.lastState = server.getStatus().name();
+            return vm;
+
         } catch (Exception e) {
             throw new MWCloudException("Failed to start VM: " + e.getMessage(), e);
         }

@@ -102,7 +102,7 @@ public class MWCloudController {
     private void deleteVM(String[] args) throws MWCloudException {
 
         // Delete VM by ID only
-        this.platform.deleteVM(new MWVirtualMachine(args[1], "", ""));
+        this.platform.deleteVM(new MWVirtualMachine(args[1], args[2], args[3]));
     }
 
     private void listVMs() throws MWCloudException {
@@ -255,9 +255,11 @@ public class MWCloudController {
  *
  * 1)
  * sp aws
- * start-vm testVM - ami-0b44ee2dcf07ee291 - - - subnet-70560917 sg-03a1e273a226a8b04 gruppe01-new example_data
+ * start-vm testAWSVM - ami-0b44ee2dcf07ee291 - - - subnet-70560917 sg-03a1e273a226a8b04 gruppe01-new example_data
  *
- *
+ * 2)
+ * sp osc
+ * start-vm testOSCVm debian-example 45d75974-9323-460f-8c84-6a83e0971f5f i4.tiny 6920733b-7246-4cb0-bc76-75369006aba7 internal 722c8d94-101b-4cab-9910-8701e4d6533b 4bb56afa-4a07-4f00-aaa7-ec723580be1e key-johannes example_data
  *
  *
  */
