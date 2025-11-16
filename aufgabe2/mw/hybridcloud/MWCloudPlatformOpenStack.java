@@ -9,7 +9,14 @@ import org.openstack4j.model.compute.Server;
 import org.openstack4j.model.compute.ServerCreate;
 import org.openstack4j.openstack.OSFactory;
 
+import javax.ws.rs.client.ClientBuilder;
+import javax.ws.rs.client.Client;
+import javax.ws.rs.client.WebTarget;
+import javax.ws.rs.core.MediaType;
+import javax.ws.rs.core.Response;
+
 import mw.hybridcloud.MWVirtualMachine.MWVirtualMachineProvider;
+import mw.hybridcloud.MWGnocchiInstanceResource;
 
 import java.util.List;
 
@@ -21,7 +28,11 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
      * i4.tiny
      */
 
-    private OSClient.OSClientV3 client;
+    private final OSClient.OSClientV3 client;
+    private final Client httpClient;
+    private final WebTarget gnocchiBase;
+    private final String authToken;
+
 
 
     public MWCloudPlatformOpenStack() throws MWCloudException {
@@ -59,6 +70,11 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
         } catch (Exception e) {
             throw new MWCloudException("Failed to authenticate with OpenStack: " + e.getMessage(), e);
         }
+        this.authToken = client.getToken().getId();
+        this.httpClient = ClientBuilder.newClient();
+        String metricURL = " https://i4cloud1.informatik.uni-erlangen.de:8041 "
+        this.gnocchiBase = httpClient.target(metricURL).path("v1");
+
     }
 
     @Override
@@ -135,10 +151,68 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
 
     @Override
     public Double getCPUUsage(MWVirtualMachine vm, int seconds) throws MWCloudException {
-        /*
-         *  TODO: Implement method (optional for 5.0 ECTS)
-         */
-        return null;
+        try {
+            WebTarget resTarget = gnocchiBase.path("resources").path("instance").path(vm.vmId);
+            MWGnocchiInstanceResource resource = resTarget
+                    .request(MediaType.APPLICATION_JSON)
+                    .header("X-Auth-Token", authToken)
+                    .get(MWGnocchiInstanceResource.class);
+            MWGnocchiInstanceResource gnocciResource = resTarget.request(MediaType.APPLICATION_JSON)
+                    .header("X-Auth-Token", authToken)
+                    .get(MWGnocchiInstanceResource.class);
+            if (gnocciResource == null || gnocciResource.getMetrics() == null) {
+                throw new MWCloudException("No Gnocchi resource/metrics found for VM " + vm.vmId);
+            }
+            String cpuMetricId = resource.getMetrics().get("cpu");
+            if (cpuMetricId == null || cpuMetricId.isEmpty()) {
+                throw new MWCloudException("No CPU metric found for VM " + vm.vmId);
+            }
+            //granularity is different to aws because here the 10s interval is free
+            WebTarget measuresTarget = gnocchiBase
+                    .path("metric")
+                    .path(cpuMetricId)
+                    .path("measures")
+                    .queryParam("start", "-" + seconds + "seconds")
+                    .queryParam("granularity", 10)
+                    .queryParam("aggregation", "rate:mean");
+            Response response = measuresTarget
+                    .request(MediaType.APPLICATION_JSON)
+                    .header("X-Auth-Token", authToken)
+                    .get();
+            if (response.getStatus() != 200) {
+                String body = response.readEntity(String.class);
+                throw new MWCloudException("Gnocchi measures request failed: HTTP "
+                        + response.getStatus() + " - " + body);
+            }
+            String[][] measures = response.readEntity(String[][].class);
+            if (measures == null) {
+                return null;
+            }
+            double sumUtil = 0.0;
+            int count = 0;
+
+            for (String[] m : measures) {
+                if (m == null || m.length < 3) {
+                    continue;
+                }
+                double periodSec;
+                double valueNs;
+                periodSec = Double.parseDouble(m[1]);
+                valueNs = Double.parseDouble(m[2]);
+                double periodNs = periodSec * 1_000_000_000d;
+                double utilizationPercent = (valueNs / periodNs) * 100.0;
+                sumUtil += utilizationPercent;
+                count++;
+            }
+            if (count == 0) {
+                return 0.0;
+            }
+            return sumUtil / count;
+        } catch (MWCloudException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new MWCloudException("Failed to get OpenStack/Gnocchi CPU usage: " + e.getMessage(), e);
+        }
     }
 
     @Override

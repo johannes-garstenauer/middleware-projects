@@ -14,6 +14,11 @@ import mw.client.MWRegistryClient;
 import mw.client.MWServiceInstanceManager;
 import mw.client.MWWebServiceException;
 import mw.hybridcloud.MWVirtualMachine.MWVirtualMachineProvider;
+import mw.hybridcloud.MWCloudPlatformAWS;
+import mw.hybridcloud.MWCloudPlatformOpenStack;
+
+import javax.ws.rs.client.Client;
+import javax.ws.rs.client.ClientBuilder;
 
 /***
  * Include in shell
@@ -236,9 +241,22 @@ public class MWCloudController {
     }
 
     private void getCPUUsage(String[] args) throws MWCloudException {
-        /*
-         * TODO: Implement method (optional for 5.0 ECTS)
-         */
+        String vmID =  args[1];
+        MWVirtualMachineProvider provider = MWVirtualMachineProvider.fromString(args[2]);
+        int seconds = Integer.parseInt(args[3]);
+
+        if (provider == null) {
+            System.out.println("Provider " + args[2] + " not found!");
+            return;
+        }
+        MWVirtualMachine machine = getCorrespondingPlatform(provider).findVM(vmId);
+        if (machine == null) {
+            System.out.println("Instance with id " + args[1] + " not found!");
+            return;
+        }
+        Double cpuUsage = getCorrespondingPlatform(machine).getCPUUsage(machine, seconds);
+        System.out.println("CPU usage for " + vmID + "in time interval " + seconds + ": " + cpuUsage);
+
     }
 
     private void setPlatform(String[] args) {

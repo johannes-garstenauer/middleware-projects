@@ -11,6 +11,13 @@ import java.util.ArrayList;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.model.*;
+import software.amazon.awssdk.services.cloudwatch.CloudWatchClient;
+import software.amazon.awssdk.services.cloudwatch.model.CloudWatchException;
+import software.amazon.awssdk.services.cloudwatch.model.Datapoint;
+import software.amazon.awssdk.services.cloudwatch.model.Dimension;
+import software.amazon.awssdk.services.cloudwatch.model.GetMetricStatisticsRequest;
+import software.amazon.awssdk.services.cloudwatch.model.GetMetricStatisticsResponse;
+import software.amazon.awssdk.services.cloudwatch.model.Statistic;
 
 /***
  * TODO:
@@ -38,6 +45,7 @@ import software.amazon.awssdk.services.ec2.model.*;
  */
 public class MWCloudPlatformAWS implements MWCloudPlatform {
     private Ec2Client ec2;
+    private CloudWatchClient cloudWatch;
     public static final String INSTANCE_TYPE = "t2.nano";
 
     public MWCloudPlatformAWS() throws MWCloudException {
@@ -45,6 +53,9 @@ public class MWCloudPlatformAWS implements MWCloudPlatform {
         try {
             this.ec2 = Ec2Client.builder()
                     .region(Region.EU_WEST_1)
+                    .build();
+            this.cloudWatch = CloudWatchClient.builder()
+                    .region(region)
                     .build();
         } catch (Exception e) {
             throw new MWCloudException("Failed to create AWS EC2 client: " + e.getMessage(), e);
@@ -208,9 +219,53 @@ public class MWCloudPlatformAWS implements MWCloudPlatform {
 
     @Override
     public Double getCPUUsage(MWVirtualMachine vm, int seconds) throws MWCloudException {
-        /*
-         *  TODO: Implement method (optional for 5.0 ECTS)
-         */
+        String id = vm.vmId;
+        try {
+            Instant endTime = Instant.now();
+            Instant startTime = endTime.minusSeconds(seconds);
+
+            Dimension instanceDimension = Dimension.builder()
+                    .name("InstanceId")
+                    .value(instanceId)
+                    .build();
+            // cloudwatch statistics are more expensive when requiring granularity of less than 1 minute
+            int period = Math.max(60, (seconds / 60) * 60);
+            if (period == 0) {
+                period = 60;
+            }
+
+            GetMetricStatisticsRequest request = GetMetricStatisticsRequest.builder()
+                    .namespace("AWS/EC2")
+                    .metricName("CPUUtilization")
+                    .dimensions(instanceDimension)
+                    .statistics(Statistic.AVERAGE)
+                    .startTime(startTime)
+                    .endTime(endTime)
+                    .period(period)
+                    .build();
+            GetMetricStatisticsResponse response = cloudWatch.getMetricStatistics(request);
+            List<Datapoint> datapoints = response.datapoints();
+            if (datapoints == null || datapoints.isEmpty()) {
+                return null;
+            }
+            double sum = 0.0;
+            int count = 0;
+            for (Datapoint dp : datapoints) {
+                if (dp.average() != null) {
+                    sum += dp.average();
+                    count++;
+                }
+            }
+            if (count == 0) {
+                return 0.0;
+            }
+            return sum / count;
+        } catch (CloudWatchException e) {
+            throw new MWCloudException("AWS CloudWatch error: " +
+                    (e.awsErrorDetails() != null ? e.awsErrorDetails().errorMessage() : e.getMessage()), e);
+        } catch (Exception e) {
+            throw new MWCloudException("Failed to get CPU usage: " + e.getMessage(), e);
+        }
         return null;
     }
 
