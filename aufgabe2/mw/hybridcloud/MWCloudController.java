@@ -36,6 +36,18 @@ public class MWCloudController {
     private MWCloudPlatform osc = null;
     private MWServiceInstanceManager instanceManager;
 
+    private static final int MAX_PRIVATE_INSTANCES = 2;
+    private static final int MIN_PRIVATE_INSTANCES = 1;
+    private static final double CPU_HIGH_THRESHOLD = 70.0;
+    private static final double CPU_LOW_THRESHOLD  = 20.0;
+    private static final int SCALE_UP_STABLE_CYCLES   = 3;
+    private static final int SCALE_DOWN_STABLE_CYCLES = 5;
+    private static final int MONITOR_INTERVAL_SECONDS        = 30;
+    private static final int CPU_MEASUREMENT_WINDOW_SECONDS  = 60;
+    private volatile boolean autoScalingEnabled = false;
+    private int consecutiveHighLoadCycles = 0;
+    private int consecutiveLowLoadCycles  = 0;
+
     public MWCloudController() throws MWCloudException {
         this.aws = new MWCloudPlatformAWS();
         this.osc = new MWCloudPlatformOpenStack();
@@ -241,7 +253,7 @@ public class MWCloudController {
     }
 
     private void getCPUUsage(String[] args) throws MWCloudException {
-        String vmID =  args[1];
+        String vmId =  args[1];
         MWVirtualMachineProvider provider = MWVirtualMachineProvider.fromString(args[2]);
         int seconds = Integer.parseInt(args[3]);
 
@@ -255,7 +267,7 @@ public class MWCloudController {
             return;
         }
         Double cpuUsage = getCorrespondingPlatform(machine).getCPUUsage(machine, seconds);
-        System.out.println("CPU usage for " + vmID + "in time interval " + seconds + ": " + cpuUsage);
+        System.out.println("CPU usage for " + vmId + "in time interval " + seconds + ": " + cpuUsage);
 
     }
 

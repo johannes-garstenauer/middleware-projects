@@ -6,6 +6,7 @@ import java.util.List;
 import mw.hybridcloud.MWVirtualMachine.MWVirtualMachineProvider;
 
 import java.util.ArrayList;
+import java.time.Instant;
 
 // import aws sdk from
 import software.amazon.awssdk.regions.Region;
@@ -55,7 +56,7 @@ public class MWCloudPlatformAWS implements MWCloudPlatform {
                     .region(Region.EU_WEST_1)
                     .build();
             this.cloudWatch = CloudWatchClient.builder()
-                    .region(region)
+                    .region(Region.EU_WEST_1)
                     .build();
         } catch (Exception e) {
             throw new MWCloudException("Failed to create AWS EC2 client: " + e.getMessage(), e);
@@ -219,14 +220,13 @@ public class MWCloudPlatformAWS implements MWCloudPlatform {
 
     @Override
     public Double getCPUUsage(MWVirtualMachine vm, int seconds) throws MWCloudException {
-        String id = vm.vmId;
         try {
             Instant endTime = Instant.now();
             Instant startTime = endTime.minusSeconds(seconds);
 
             Dimension instanceDimension = Dimension.builder()
                     .name("InstanceId")
-                    .value(instanceId)
+                    .value(vm.vmId)
                     .build();
             // cloudwatch statistics are more expensive when requiring granularity of less than 1 minute
             int period = Math.max(60, (seconds / 60) * 60);
@@ -266,7 +266,6 @@ public class MWCloudPlatformAWS implements MWCloudPlatform {
         } catch (Exception e) {
             throw new MWCloudException("Failed to get CPU usage: " + e.getMessage(), e);
         }
-        return null;
     }
 
 }

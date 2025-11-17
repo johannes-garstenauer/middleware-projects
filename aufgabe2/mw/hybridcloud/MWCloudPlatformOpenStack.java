@@ -72,7 +72,7 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
         }
         this.authToken = client.getToken().getId();
         this.httpClient = ClientBuilder.newClient();
-        String metricURL = " https://i4cloud1.informatik.uni-erlangen.de:8041 "
+        String metricURL = "https://i4cloud1.informatik.uni-erlangen.de:8041 ";
         this.gnocchiBase = httpClient.target(metricURL).path("v1");
 
     }
