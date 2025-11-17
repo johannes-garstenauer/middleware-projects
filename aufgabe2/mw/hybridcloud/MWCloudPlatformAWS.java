@@ -91,7 +91,6 @@ public class MWCloudPlatformAWS implements MWCloudPlatform {
             for (Reservation reservation : response.reservations()) {
                 for (Instance instance : reservation.instances()) {
                     InstanceStateName state = instance.state().name();
-                    System.out.println(vm.vmId + " | " + vm.vmName + " has state: " + state);
                     return state == InstanceStateName.RUNNING;
                 }
             }

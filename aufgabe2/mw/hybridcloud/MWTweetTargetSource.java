@@ -17,7 +17,12 @@ public class MWTweetTargetSource {
 
 	public List<String> queryTweetTargets() {
 		try {
-			return instanceManager.listInstances(cache);
+			List<String> instances = instanceManager.listInstances(cache);
+			for (int i = 0; i < instances.size(); i++) {
+				instances.set(i, "http://" + instances.get(i) + "/tweetservice");
+			}
+
+			return instances;
 		} catch (MWWebServiceException e) {
 			System.err.println("Encountered exception during listInstance(): " + e.getMessage());
 			e.printStackTrace();

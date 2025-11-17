@@ -71,38 +71,33 @@ public class MWCloudController {
         }
         System.out.println();
 
-        // filter not earlier due to logging
-        Function<List<MWVirtualMachine>, List<String>> transformVMs = list -> {
-            return list
-                .stream()
-                .filter(vm -> vm.address != null && !vm.address.strip().isEmpty())
-                .map(vm -> "http://" + vm.address + "/tweetservice")
-                .toList();
-        };
+        // get all ips of online vms
+        List<String> onlineVMs = vms.get(true)
+            .stream()
+            .filter(vm -> vm.address != null && !vm.address.strip().isEmpty())
+            .map(vm -> vm.address)
+            .toList();
 
-        List<String> offlineVMs = transformVMs.apply(vms.get(false));
-        List<String> onlineVMs = transformVMs.apply(vms.get(true));
-
-        List<String> urls;
+        List<String> ips;
         try {
-            urls = instanceManager.listInstances(null);
+            ips = instanceManager.listInstances(null);
         } catch (MWWebServiceException e) {
             throw new MWCloudException(e);
         }
 
-        // delete all urls from registry of vms that do not appear to be online anymore
-        urls.stream().filter(offlineVMs::contains).forEach(url -> {
+        // delete all ips from registry of vms that do not appear to be online anymore
+        ips.stream().filter(ip -> !onlineVMs.contains(ip)).forEach(ip -> {
             try {
-                instanceManager.removeInstance(url);
+                instanceManager.removeInstance(ip);
             } catch (MWWebServiceException e) {
                 System.err.println("Could not remove instance: " + e.getMessage());
             }
         });
 
-        // add missing urls to registry of vms that were not yet added
-        onlineVMs.stream().filter(url -> !urls.contains(url)).forEach(url -> {
+        // add missing ips to registry of vms that were not yet added
+        onlineVMs.stream().filter(ip -> !ips.contains(ip)).forEach(ip -> {
             try {
-                instanceManager.addInstance("http://" + url + "/tweetservice");
+                instanceManager.addInstance(ip);
             } catch (MWWebServiceException e) {
                 System.err.println("Could not add instance: " + e.getMessage());
             }
@@ -200,8 +195,8 @@ public class MWCloudController {
         vm = getCorrespondingPlatform(vm).findVM(vm.vmId);
         if (vm.address != null && !vm.address.isEmpty()) {
             try {
-                instanceManager.addInstance("http://" + vm.address + "/tweetservice");
-                System.out.println("Added url " + vm.address + " to registry");
+                instanceManager.addInstance(vm.address);
+                System.out.println("Added instance " + vm.address + " to registry");
             } catch (MWWebServiceException e) {
                 System.err.println("Could not add VM to registry: " + e.getMessage());
                 System.err.println("Please try to restart this controller to automatically" +
@@ -236,7 +231,7 @@ public class MWCloudController {
             try {
                 // may also throw an exception if the address was not part of the registry before
                 instanceManager.removeInstance(machine.address);
-                System.out.println("Removed url " + machine.address + " from registry");
+                System.out.println("Removed instance " + machine.address + " from registry");
             } catch (MWWebServiceException e) {
                 System.err.println("Could not remove VM from registry: " + e.getMessage());
                 System.err.println("Please try to restart this controller to automatically" +
@@ -413,6 +408,7 @@ public class MWCloudController {
         MWCloudController cloudController = null;
         try {
             cloudController = new MWCloudController();
+            cloudController.platform = cloudController.aws; // default platform
             cloudController.updateRegistryInstanceState();
         } catch (MWCloudException e) {
             throw new RuntimeException(e);

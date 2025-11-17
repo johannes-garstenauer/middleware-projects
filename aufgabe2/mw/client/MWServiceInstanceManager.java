@@ -13,10 +13,10 @@ public class MWServiceInstanceManager {
     private String groupName;
     private String serviceName;
 
-    public MWServiceInstanceManager(String registryUrl, String groupName, String serviceName) {
+    public MWServiceInstanceManager(String registryIp, String groupName, String serviceName) {
         this.groupName = groupName;
         this.serviceName = serviceName;
-        this.registryClient = new MWRegistryClient(registryUrl);
+        this.registryClient = new MWRegistryClient(registryIp);
     }
 
     public void autoLogin() {
@@ -33,20 +33,20 @@ public class MWServiceInstanceManager {
         }
     }
 
-    public void addInstance(String url) throws MWWebServiceException {
-        if (url == null || url.isEmpty()) {
-            throw new MWWebServiceException("No url was given");
+    public void addInstance(String ip) throws MWWebServiceException {
+        if (ip == null || ip.isEmpty()) {
+            throw new MWWebServiceException("No ip was given");
         }
 
-        registryClient.putValue(groupName, serviceName, getUniqueAddrKey(url), url);
+        registryClient.putValue(groupName, serviceName, getUniqueAddrKey(ip), ip);
     }
 
-    public void removeInstance(String url) throws MWWebServiceException {
-        if (url == null || url.isEmpty()) {
-            throw new MWWebServiceException("No url was given");
+    public void removeInstance(String ip) throws MWWebServiceException {
+        if (ip == null || ip.isEmpty()) {
+            throw new MWWebServiceException("No ip was given");
         }
 
-        registryClient.deleteValue(groupName, serviceName, getUniqueAddrKey(url));
+        registryClient.deleteValue(groupName, serviceName, getUniqueAddrKey(ip));
     }
 
     public List<String> listInstances(RegistryCache cache) throws MWWebServiceException {
@@ -57,24 +57,24 @@ public class MWServiceInstanceManager {
         ArrayList<String> instances = new ArrayList<>(addrKeys.length);
 
         for (int i = 0; i < addrKeys.length; i++) {
-            // retrieve the url either cached or uncached
-            String url;
+            // retrieve the ip either cached or uncached
+            String ip;
             if (cache == null) {
-                url = registryClient.getValue(groupName, serviceName, addrKeys[i]);
+                ip = registryClient.getValue(groupName, serviceName, addrKeys[i]);
             } else {
-                url = cache.getValue(registryClient, groupName, serviceName, addrKeys[i]);
+                ip = cache.getValue(registryClient, groupName, serviceName, addrKeys[i]);
             }
 
-            instances.add(url);
+            instances.add(ip);
         }
 
         return instances;
     }
 
-    private String getUniqueAddrKey(String url) {
+    private String getUniqueAddrKey(String ip) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            digest.update(url.getBytes());
+            digest.update(ip.getBytes());
 
             // convert hash to hex string
             byte[] hash = digest.digest();
@@ -95,7 +95,7 @@ public class MWServiceInstanceManager {
     }
 
     static public class RegistryCache {
-        private HashMap<String, String> urlCache = new HashMap<>();
+        private HashMap<String, String> ipCache = new HashMap<>();
 
         public RegistryCache() {}
 
@@ -103,10 +103,9 @@ public class MWServiceInstanceManager {
             throws MWWebServiceException {
             
             if (key.startsWith("addr-")) {
-                String hash = key.substring("addr-".length());
-                if (urlCache.containsKey(hash)) {
+                if (ipCache.containsKey(key)) {
                     // key already cached, yay!
-                    return urlCache.get(hash);
+                    return ipCache.get(key);
                 }
             }
 
@@ -116,14 +115,14 @@ public class MWServiceInstanceManager {
             String value = registryClient.getValue(group, service, key);
             if (key.startsWith("addr-")) {
                 // value is cacheable, let's save it in our cache
-                urlCache.put(key, value);
+                ipCache.put(key, value);
             }
 
             return value;
         }
 
         public void clear() {
-            urlCache.clear();
+            ipCache.clear();
         }
     }
 
