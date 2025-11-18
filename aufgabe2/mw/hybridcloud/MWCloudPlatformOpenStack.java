@@ -2,12 +2,14 @@ package mw.hybridcloud;
 
 import org.openstack4j.api.Builders;
 import org.openstack4j.api.OSClient;
+import org.openstack4j.model.common.ActionResponse;
 import org.openstack4j.model.common.Identifier;
 import org.openstack4j.model.compute.Action;
-import org.openstack4j.model.compute.Flavor;
+import org.openstack4j.model.compute.Address;
 import org.openstack4j.model.compute.Server;
 import org.openstack4j.model.compute.ServerCreate;
 import org.openstack4j.openstack.OSFactory;
+import org.openstack4j.openstack.compute.domain.NovaFloatingIP;
 
 import javax.ws.rs.client.ClientBuilder;
 import javax.ws.rs.client.Client;
@@ -18,21 +20,17 @@ import javax.ws.rs.core.Response;
 import mw.hybridcloud.MWVirtualMachine.MWVirtualMachineProvider;
 import mw.hybridcloud.MWGnocchiInstanceResource;
 
+import java.util.Arrays;
 import java.util.List;
 
 
 public class MWCloudPlatformOpenStack implements MWCloudPlatform {
 
-    /***
-     * debian-example
-     * i4.tiny
-     */
 
     private final OSClient.OSClientV3 client;
     private final Client httpClient;
     private final WebTarget gnocchiBase;
     private final String authToken;
-
 
 
     public MWCloudPlatformOpenStack() throws MWCloudException {
@@ -41,21 +39,11 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
         String authUrl = System.getenv("OS_AUTH_URL");
         String projectId = System.getenv("OS_PROJECT_ID");
         String domainName = System.getenv("OS_USER_DOMAIN_NAME");
-        try {
-            if (user == null || pass == null || authUrl == null || projectId == null || domainName == null) {
-                /***
-                 *System.out.printf("User: %s\n", user);
-                 *System.out.printf("Pass: %s\n", pass);
-                 *System.out.printf("Auth URL: %s\n", authUrl);
-                 *System.out.printf("Project ID: %s\n", projectId);
-                 * System.out.printf("Domain Name: %s\n", domainName);
-                 ***/
-                throw new IllegalArgumentException("One or more required OpenStack environment variables are not set.");
-            }
-        } catch (IllegalArgumentException e) {
-            System.err.println("Error: " + e.getMessage());
-            System.err.println("Please ensure OS_USERNAME, OS_PASSWORD, OS_AUTH_URL, OS_PROJECT_ID, and OS_USER_DOMAIN_NAME are set.");
-            throw e;
+
+        if (user == null || pass == null || authUrl == null || projectId == null || domainName == null) {
+            throw new MWCloudException("One or more required OpenStack environment variables are not set:" +
+                    "\n " +
+                    "OS_USERNAME, OS_PASSWORD, OS_AUTH_URL, OS_PROJECT_ID, and OS_USER_DOMAIN_NAME.");
         }
 
         Identifier userDomainName = Identifier.byName(domainName);
@@ -79,6 +67,7 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
 
     @Override
     public MWVirtualMachine startVM(MWVirtualMachineConfig conf) throws MWCloudException {
+        byte[] userDataBase64 = conf.userData != null ? conf.userData.getBytes() : null;
 
         for (Flavor flavor :client.compute().flavors().list()) {
             System.out.println("Flavor: " + flavor.getName() + " | ID: " + flavor.getId());
@@ -91,19 +80,32 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
                 .keypairName(conf.keyName)
                 .networks(List.of(conf.networkId))
                 .addSecurityGroup(conf.securityGroup)
-                .userData(conf.userData)
+                .userData(Arrays.toString(userDataBase64))
                 .build();
 
         try {
             Server server = client.compute().servers()
-                    .bootAndWaitActive(sc, 60000); // 1 min wait-time
+                    .bootAndWaitActive(sc, 60000); // 1 min. max wait-time
 
-            return new MWVirtualMachine(
+            NovaFloatingIP floatingIp = (NovaFloatingIP) client.compute().floatingIps().list().stream()
+                    .filter(floatingIP -> floatingIP.getInstanceId() == null)
+                    .findFirst()
+                    .orElseThrow(() -> new MWCloudException("No available floating IPs found"));
+
+            ActionResponse r = client.compute().floatingIps().addFloatingIP(server, floatingIp.getFloatingIpAddress());
+            if (!r.isSuccess()) {
+                throw new MWCloudException("Failed to associate floating IP: " + r.getFault());
+            }
+
+            MWVirtualMachine vm = new MWVirtualMachine(
                     server.getId(),
                     server.getName(),
-                    server.getAccessIPv4() != null ? server.getAccessIPv4() : "",
+                    floatingIp.getFloatingIpAddress(),
                     MWVirtualMachineProvider.OPENSTACK
             );
+            vm.lastState = server.getStatus().name();
+            return vm;
+
         } catch (Exception e) {
             throw new MWCloudException("Failed to start VM: " + e.getMessage(), e);
         }
@@ -114,9 +116,9 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
         try {
             client.compute().servers().action(vm_ref.vmId, Action.SUSPEND);
             client.compute().servers().delete(vm_ref.vmId);
-            System.out.println("Deleted VM with ID: " + vm_ref.vmId);
+            System.out.println("Deleted VM: " + vm_ref.vmId);
         } catch (Exception e) {
-            throw new MWCloudException("Failed to delete VM: " + e.getMessage(), e);
+            throw new MWCloudException("Failed to delete VM:" + vm_ref + e.getMessage(), e);
         }
     }
 
@@ -124,7 +126,11 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
     public List<MWVirtualMachine> listVMs() throws MWCloudException {
         try {
             List<? extends Server> servers = client.compute().servers().list();
-            return servers.stream().map(server -> convertVirtualMachine(server)).toList();
+
+            List<MWVirtualMachine> vms = servers.stream().map(this::convertVirtualMachine).toList();
+
+            vms.forEach(vm -> vm.lastState = client.compute().servers().get(vm.vmId).getStatus().name());
+            return vms;
         } catch (Exception e) {
             throw new MWCloudException("Failed to list VMs: " + e.getMessage(), e);
         }
@@ -142,10 +148,14 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
 
     private MWVirtualMachine convertVirtualMachine(Server server) {
         return new MWVirtualMachine(
-            server.getId(),
-            server.getName(),
-            server.getAccessIPv4() != null ? server.getAccessIPv4() : "",
-            MWVirtualMachineProvider.OPENSTACK
+                server.getId(),
+                server.getName(),
+                server.getAddresses().getAddresses("internal").stream()
+                        .filter(addr -> addr.getType().equals("floating") && addr.getVersion() == 4)
+                        .map(Address::getAddr)
+                        .findFirst()
+                        .orElse(server.getAddresses().getAddresses("internal").getFirst().getAddr()),
+                MWVirtualMachineProvider.OPENSTACK
         );
     }
 

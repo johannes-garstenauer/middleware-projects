@@ -45,12 +45,11 @@ import software.amazon.awssdk.services.cloudwatch.model.Statistic;
  *
  */
 public class MWCloudPlatformAWS implements MWCloudPlatform {
-    private Ec2Client ec2;
+    private final Ec2Client ec2;
     private CloudWatchClient cloudWatch;
     public static final String INSTANCE_TYPE = "t2.nano";
 
     public MWCloudPlatformAWS() throws MWCloudException {
-
         try {
             this.ec2 = Ec2Client.builder()
                     .region(Region.EU_WEST_1)
@@ -72,7 +71,7 @@ public class MWCloudPlatformAWS implements MWCloudPlatform {
                     .resourceType(ResourceType.INSTANCE)
                     .build();
 
-            byte[] userDataBytes = (conf.userData != null ? conf.userData : "Hello World").getBytes();
+            byte[] userDataBytes = (conf.userData != null ? conf.userData : "<default data>").getBytes();
 
             RunInstancesRequest request = RunInstancesRequest.builder()
                     .imageId(conf.imageId)
@@ -83,10 +82,9 @@ public class MWCloudPlatformAWS implements MWCloudPlatform {
                     .keyName(conf.keyName)
                     .userData(Base64.getEncoder().encodeToString(userDataBytes))
                     .monitoring(RunInstancesMonitoringEnabled.builder().enabled(true).build())
-                    .securityGroupIds(conf.securityGroup) // z.B. im Web-Interface erstellen
-                    .subnetId(conf.networkId) // (VPC muss Security-Group vorab zugeordnet werden)
+                    .securityGroupIds(conf.securityGroup)
+                    .subnetId(conf.networkId)
                     .build();
-            ;
 
             RunInstancesResponse response = ec2.runInstances(request);
 
@@ -117,6 +115,7 @@ public class MWCloudPlatformAWS implements MWCloudPlatform {
         }
     }
 
+    @Override
     public boolean isInstanceRunning(MWVirtualMachine vm) throws MWCloudException {
         try {
             DescribeInstancesRequest request = DescribeInstancesRequest.builder()
@@ -152,7 +151,7 @@ public class MWCloudPlatformAWS implements MWCloudPlatform {
             }
 
             for (InstanceStateChange terminated_instance : response.terminatingInstances()) {
-                System.out.println("Terminated instance ID: " + terminated_instance.instanceId() +
+                System.out.println("Terminated: " + terminated_instance.instanceId() +
                         ", previous state: " + terminated_instance.previousState().nameAsString() +
                         ", current state: " + terminated_instance.currentState().nameAsString());
             }
