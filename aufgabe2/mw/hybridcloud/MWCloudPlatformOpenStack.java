@@ -60,7 +60,7 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
         }
         this.authToken = client.getToken().getId();
         this.httpClient = ClientBuilder.newClient();
-        String metricURL = "https://i4cloud1.informatik.uni-erlangen.de:8041 ";
+        String metricURL = "https://i4cloud1.informatik.uni-erlangen.de:8041";
         this.gnocchiBase = httpClient.target(metricURL).path("v1");
 
     }
@@ -69,9 +69,6 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
     public MWVirtualMachine startVM(MWVirtualMachineConfig conf) throws MWCloudException {
         byte[] userDataBase64 = conf.userData != null ? conf.userData.getBytes() : null;
 
-        for (Flavor flavor :client.compute().flavors().list()) {
-            System.out.println("Flavor: " + flavor.getName() + " | ID: " + flavor.getId());
-        }
         ServerCreate sc = Builders.server()
                 .name(conf.vmName)
                 .userData(conf.userData)
@@ -162,7 +159,7 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
     @Override
     public Double getCPUUsage(MWVirtualMachine vm, int seconds) throws MWCloudException {
         try {
-            WebTarget resTarget = gnocchiBase.path("resources").path("instance").path(vm.vmId);
+            WebTarget resTarget = gnocchiBase.path("resource").path("instance").path(vm.vmId);
             MWGnocchiInstanceResource resource = resTarget
                     .request(MediaType.APPLICATION_JSON)
                     .header("X-Auth-Token", authToken)
