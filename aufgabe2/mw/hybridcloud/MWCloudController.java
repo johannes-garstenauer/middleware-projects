@@ -123,47 +123,59 @@ public class MWCloudController {
         // add missing urls to registry of vms that were not yet added
         onlineVMs.stream().filter(url -> !urls.contains(url)).forEach(url -> {
             try {
-                instanceManager.addInstance("http://" + url + "/tweetservice");
+                instanceManager.addInstance(url);
             } catch (MWWebServiceException e) {
                 System.err.println("Could not add instance: " + e.getMessage());
             }
         });
     }
-    
-    // TODO blocking
-    private void startVM(String[] args) throws MWCloudException {
-        MWVirtualMachineConfig conf_aws = new MWVirtualMachineConfig(
-                "TestVM-from-MWCloudController3",
-                "Amazon Linux 2 AMI",
-                "ami-0b44ee2dcf07ee291",
-                null,
-                null,
-                "gruppe01-new",
-                "subnet-70560917",
-                "sg-03a1e273a226a8b04",
-                "gruppe01-new",
-                "group=gruppe1-bucket;jar=mwtweetservice.jar;class=mw.hybridcloud.MWTweetService;parameters=http://0.0.0.0"
-        );
 
-        MWVirtualMachineConfig conf_osc = new MWVirtualMachineConfig(
-                "TestVM-from-MWCloudController",
-                "debian",
-                "98b974a6-b89b-439d-b9b5-2283b509ecdb",
-                "i4.tiny",
-                "6920733b-7246-4cb0-bc76-75369006aba7",
-                "internal",
-                "722c8d94-101b-4cab-9910-8701e4d6533b",
-                "4bb56afa-4a07-4f00-aaa7-ec723580be1e",
-                "gruppe1",
-                "group=gruppe1-bucket;jar=mwtweetservice.jar;class=mw.hybridcloud.MWTweetService;parameters=http://0.0.0.0"
-        );
+    private MWVirtualMachine startTweetVM(MWVirtualMachine.MWVirtualMachineProvider provider) throws MWCloudException {
+        MWVirtualMachineConfig conf;
+        MWCloudPlatform targetPlatform;
 
+        switch (provider) {
+            case OPENSTACK -> {
+                targetPlatform = osc;
+                conf = new MWVirtualMachineConfig(
+                        "TestVM-from-MWCloudController",
+                        "debian",
+                        "98b974a6-b89b-439d-b9b5-2283b509ecdb",
+                        "i4.tiny",
+                        "6920733b-7246-4cb0-bc76-75369006aba7",
+                        "internal",
+                        "722c8d94-101b-4cab-9910-8701e4d6533b",
+                        "4bb56afa-4a07-4f00-aaa7-ec723580be1e",
+                        "gruppe1",
+                        "group=gruppe1-bucket;jar=mwtweetservice.jar;class=mw.hybridcloud.MWTweetService;parameters=http://0.0.0.0"
+                );
+            }
+            case AWS -> {
+                targetPlatform = aws;
+                conf = new MWVirtualMachineConfig(
+                        "TestVM-from-MWCloudController3",
+                        "Amazon Linux 2 AMI",
+                        "ami-0b44ee2dcf07ee291",
+                        null,
+                        null,
+                        "gruppe01-new",
+                        "subnet-70560917",
+                        "sg-03a1e273a226a8b04",
+                        "gruppe01-new",
+                        "group=gruppe1-bucket;jar=mwtweetservice.jar;class=mw.hybridcloud.MWTweetService;parameters=http://0.0.0.0"
+                );
+            }
+            default -> throw new IllegalArgumentException("Unsupported provider: " + provider);
+        }
 
-        // MWVirtualMachine vm = aws.startVM(conf_aws);
-        MWVirtualMachine vm = osc.startVM(conf_osc);
-        System.out.println("Starting VM with ID: " + vm.vmId);
+        MWVirtualMachine vm = targetPlatform.startVM(conf);
+        System.out.println("Starting VM with ID: " + vm.vmId + " on provider " + provider);
+        waitForRunningAndRegister(vm);
+        return vm;
+    }
 
-        // Block until VM is RUNNING
+    private void waitForRunningAndRegister(MWVirtualMachine vmInitial) throws MWCloudException {
+        MWVirtualMachine vm = vmInitial;
         int maxAttempts = 120;
         int attempt = 0;
         int sleepTimeSeconds = 3;
@@ -171,19 +183,19 @@ public class MWCloudController {
         System.out.print("Waiting for instance...");
         while (attempt < maxAttempts) {
             if (getCorrespondingPlatform(vm).isInstanceRunning(vm)) {
-                // break line of waiting string
                 System.out.println();
 
                 // update vm state to get up-to-date address
                 vm = getCorrespondingPlatform(vm).findVM(vm.vmId);
                 if (vm.address != null && !vm.address.isEmpty()) {
+                    String url = "http://" + vm.address + "/tweetservice";
                     try {
-                        instanceManager.addInstance("http://" + vm.address + "/tweetservice");
-                        System.out.println("Added url " + vm.address + " to registry");
+                        instanceManager.addInstance(url);
+                        System.out.println("Added url " + url + " to registry");
                     } catch (MWWebServiceException e) {
                         System.err.println("Could not add VM to registry: " + e.getMessage());
-                        System.err.println("Please try to restart this controller to automatically" + 
-                            " update the registry to the correct state");
+                        System.err.println("Please try to restart this controller to automatically" +
+                                " update the registry to the correct state");
                         e.printStackTrace();
                     }
                 } else {
@@ -193,7 +205,7 @@ public class MWCloudController {
                 return;
             }
             try {
-                Thread.sleep(sleepTimeSeconds * 1000);
+                Thread.sleep(sleepTimeSeconds * 1000L);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new MWCloudException("Thread was interrupted while waiting for VM to start.");
@@ -202,10 +214,46 @@ public class MWCloudController {
             attempt++;
         }
 
-        // break line of waiting string
         System.out.println();
+        throw new MWCloudException("VM " + vm.vmId + " did not reach RUNNING state within the expected time.");
+    }
 
-        throw new MWCloudException("VM" + vm.vmId + "did not reach RUNNING state within the expected time.");
+    
+    // TODO blocking
+    private void startVM(String[] args) throws MWCloudException {
+        if (platform == null) {
+            throw new IllegalStateException("No active cloud platform set. Use set-platform first.");
+        }
+
+        MWVirtualMachineProvider provider;
+        if (platform instanceof MWCloudPlatformOpenStack) {
+            provider = MWVirtualMachineProvider.OPENSTACK;
+        } else if (platform instanceof MWCloudPlatformAWS) {
+            provider = MWVirtualMachineProvider.AWS;
+        } else {
+            throw new IllegalStateException("Unknown active platform");
+        }
+
+        startTweetVM(provider);
+    }
+
+
+    private void terminateAndDeregister(MWVirtualMachine machine) throws MWCloudException {
+        getCorrespondingPlatform(machine).deleteVM(machine);
+        if (machine.address != null && !machine.address.isEmpty()) {
+            String url = "http://" + machine.address + "/tweetservice";
+            try {
+                instanceManager.removeInstance(url);
+                System.out.println("Removed url " + url + " from registry");
+            } catch (MWWebServiceException e) {
+                System.err.println("Could not remove VM from registry: " + e.getMessage());
+                System.err.println("Please try to restart this controller to automatically" +
+                        " update the registry to the correct state");
+                e.printStackTrace();
+            }
+        } else {
+            System.err.println(String.format("VM  %s (%s) does not contain a public address!", machine.vmName, machine.vmId));
+        }
     }
 
     private void deleteVM(String[] args) throws MWCloudException {
@@ -227,21 +275,7 @@ public class MWCloudController {
             return;
         }
 
-        getCorrespondingPlatform(provider).deleteVM(machine);
-        if (machine.address != null && !machine.address.isEmpty()) {
-            try {
-                // may also throw an exception if the address was not part of the registry before
-                instanceManager.removeInstance(machine.address);
-                System.out.println("Removed url " + machine.address + " from registry");
-            } catch (MWWebServiceException e) {
-                System.err.println("Could not remove VM from registry: " + e.getMessage());
-                System.err.println("Please try to restart this controller to automatically" +
-                    " update the registry to the correct state");
-                e.printStackTrace();
-            }
-        } else {
-            System.err.println(String.format("VM  %s (%s) does not contain a public address!", machine.vmName, machine.vmId));
-        }
+        terminateAndDeregister(machine);
     }
 
     private void listVMs(String[] args) throws MWCloudException {
@@ -269,6 +303,149 @@ public class MWCloudController {
         Double cpuUsage = getCorrespondingPlatform(machine).getCPUUsage(machine, seconds);
         System.out.println("CPU usage for " + vmId + "in time interval " + seconds + ": " + cpuUsage);
 
+    }
+
+    public void startAutoScaling() {
+        autoScalingEnabled = true;
+        Thread t = new Thread(() -> {
+            try {
+                autoScalingLoop();
+            } catch (MWCloudException e) {
+                System.err.println("Auto-scaling stopped due to error: " + e.getMessage());
+                e.printStackTrace();
+            }
+        }, "AutoScalingThread");
+
+        t.setDaemon(true);
+        t.start();
+    }
+
+    private void autoScalingLoop() throws MWCloudException {
+        while (autoScalingEnabled) {
+            performAutoScalingCycle();
+            try {
+                Thread.sleep(MONITOR_INTERVAL_SECONDS * 1000L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+    }
+
+    private void performAutoScalingCycle() throws MWCloudException {
+        List<MWVirtualMachine> runningVMs = Stream.concat(
+                aws.listVMs().stream(),
+                osc.listVMs().stream()
+        ).filter(vm -> {
+            try {
+                return getCorrespondingPlatform(vm).isInstanceRunning(vm);
+            } catch (MWCloudException e) {
+                System.err.println("Could not determine state of VM " + vm.vmId + ": " + e.getMessage());
+                return false;
+            }
+        }).toList();
+
+        if (runningVMs.isEmpty()) {
+            System.err.println("No running instances found. Starting fallback private instance...");
+            startTweetVM(MWVirtualMachineProvider.OPENSTACK);
+            consecutiveHighLoadCycles = 0;
+            consecutiveLowLoadCycles = 0;
+            return;
+        }
+
+        long privateCount = runningVMs.stream()
+                .filter(vm -> vm.provider == MWVirtualMachineProvider.OPENSTACK)
+                .count();
+
+        if (privateCount == 0) {
+            System.err.println("No private instances running. Starting one...");
+            startTweetVM(MWVirtualMachineProvider.OPENSTACK);
+            return;
+        }
+
+        double sumCpu = 0.0;
+        int count = 0;
+        for (MWVirtualMachine vm : runningVMs) {
+            Double cpu = getCorrespondingPlatform(vm).getCPUUsage(vm, CPU_MEASUREMENT_WINDOW_SECONDS);
+            if (cpu != null) {
+                sumCpu += cpu;
+                count++;
+            }
+        }
+
+        if (count == 0) {
+            System.err.println("Could not retrieve CPU usage for any VM.");
+            return;
+        }
+
+        double avgCpu = sumCpu / count;
+        System.out.println("Average CPU usage (last " + CPU_MEASUREMENT_WINDOW_SECONDS + "s): " + avgCpu + "%");
+
+        if (avgCpu > CPU_HIGH_THRESHOLD) {
+            consecutiveHighLoadCycles++;
+            consecutiveLowLoadCycles = 0;
+            System.out.println("High-load cycle " + consecutiveHighLoadCycles + "/" + SCALE_UP_STABLE_CYCLES);
+
+            if (consecutiveHighLoadCycles >= SCALE_UP_STABLE_CYCLES) {
+                scaleOut();
+                consecutiveHighLoadCycles = 0;
+            }
+        } else if (avgCpu < CPU_LOW_THRESHOLD) {
+            consecutiveLowLoadCycles++;
+            consecutiveHighLoadCycles = 0;
+            System.out.println("Low-load cycle " + consecutiveLowLoadCycles + "/" + SCALE_DOWN_STABLE_CYCLES);
+
+            if (consecutiveLowLoadCycles >= SCALE_DOWN_STABLE_CYCLES) {
+                scaleIn(runningVMs);
+                consecutiveLowLoadCycles = 0;
+            }
+        } else {
+            consecutiveHighLoadCycles = 0;
+            consecutiveLowLoadCycles = 0;
+        }
+    }
+
+    private void scaleOut() throws MWCloudException {
+        List<MWVirtualMachine> privateVMs = osc.listVMs().stream()
+                .filter(vm -> {
+                    try {
+                        return getCorrespondingPlatform(vm).isInstanceRunning(vm);
+                    } catch (MWCloudException e) {
+                        return false;
+                    }
+                }).toList();
+
+        int privateCount = privateVMs.size();
+
+        if (privateCount < MAX_PRIVATE_INSTANCES) {
+            System.out.println("Scaling OUT in private cloud (OpenStack)...");
+            startTweetVM(MWVirtualMachineProvider.OPENSTACK);
+        } else {
+            System.out.println("Scaling OUT in public cloud (AWS)...");
+            startTweetVM(MWVirtualMachineProvider.AWS);
+        }
+    }
+
+    private void scaleIn(List<MWVirtualMachine> runningVMs) throws MWCloudException {
+        List<MWVirtualMachine> privateVMs = runningVMs.stream()
+                .filter(vm -> vm.provider == MWVirtualMachineProvider.OPENSTACK)
+                .toList();
+
+        List<MWVirtualMachine> publicVMs = runningVMs.stream()
+                .filter(vm -> vm.provider == MWVirtualMachineProvider.AWS)
+                .toList();
+
+        if (!publicVMs.isEmpty()) {
+            MWVirtualMachine victim = publicVMs.get(publicVMs.size() - 1);
+            System.out.println("Scaling IN: terminating PUBLIC instance " + victim.vmId);
+            terminateAndDeregister(victim);
+        } else if (privateVMs.size() > MIN_PRIVATE_INSTANCES) {
+            MWVirtualMachine victim = privateVMs.get(privateVMs.size() - 1);
+            System.out.println("Scaling IN: terminating PRIVATE instance " + victim.vmId);
+            terminateAndDeregister(victim);
+        } else {
+            System.out.println("Scale-in skipped: already at minimum number of private instances.");
+        }
     }
 
     private void setPlatform(String[] args) {
@@ -413,14 +590,15 @@ public class MWCloudController {
 
             System.out.println("Initializing Service Registry...");
             cloudController.updateRegistryInstanceState();
-
-            cloudController.startVM(null);
+            cloudController.startTweetVM(MWVirtualMachine.MWVirtualMachineProvider.OPENSTACK);
+            cloudController.startAutoScaling();
+            cloudController.shell();
 
 			//cloudController.startVM(null);
             //cloudController.listVMs(null);
             //cloudController.startVM(null);
             // cloudController.deleteVM(new String[]{"", "i-0f1cc3ff61659f976", "aws"});
-			cloudController.deleteVM(new String[]{"", "c6bc906a-3f28-4e12-a098-2d2b8ee8b1ec", "os"});
+			//cloudController.deleteVM(new String[]{"", "c6bc906a-3f28-4e12-a098-2d2b8ee8b1ec", "os"});
             //throw new MWCloudException("");
 
             // TODO enable shell
