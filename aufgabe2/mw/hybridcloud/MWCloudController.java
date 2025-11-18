@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collector;
 import java.util.stream.Collectors;
@@ -188,10 +189,10 @@ public class MWCloudController {
         }
 
         // Adresse aktualisieren
+        System.out.println("Auto-scaling: updating address");
         vm = targetPlatform.findVM(vm.vmId);
         if (vm.address != null && !vm.address.isBlank()) {
             try {
-                // Du arbeitest in dieser Version mit "IP/Adresse" direkt, nicht mit http-URL
                 instanceManager.addInstance(vm.address);
                 System.out.println("Auto-scaling: added instance " + vm.address + " to registry");
             } catch (MWWebServiceException e) {
@@ -427,7 +428,6 @@ public class MWCloudController {
     }
 
     private void performAutoScalingCycle() throws MWCloudException {
-        // Alle RUNNING-Instanzen in beiden Clouds holen
         List<MWVirtualMachine> runningVMs = Stream.concat(
                 aws.listVMs().stream(),
                 osc.listVMs().stream()
@@ -500,14 +500,12 @@ public class MWCloudController {
                 consecutiveLowLoadCycles = 0;
             }
         } else {
-            // Normalbereich
             consecutiveHighLoadCycles = 0;
             consecutiveLowLoadCycles = 0;
         }
     }
 
     private void scaleOut() throws MWCloudException {
-        // Anzahl laufender Private-Instanzen bestimmen
         List<MWVirtualMachine> privateVMs = osc.listVMs().stream()
                 .filter(vm -> {
                     try {
@@ -696,7 +694,7 @@ public class MWCloudController {
             cloudController = new MWCloudController();
             cloudController.platform = cloudController.aws; // default platform
             cloudController.updateRegistryInstanceState();
-            cloudController.startAutoScaling();
+            //cloudController.startAutoScaling();
         } catch (MWCloudException e) {
             throw new RuntimeException(e);
         }

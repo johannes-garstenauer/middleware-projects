@@ -22,6 +22,8 @@ import mw.hybridcloud.MWGnocchiInstanceResource;
 
 import java.util.Arrays;
 import java.util.List;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 
 
 public class MWCloudPlatformOpenStack implements MWCloudPlatform {
@@ -67,7 +69,12 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
 
     @Override
     public MWVirtualMachine startVM(MWVirtualMachineConfig conf) throws MWCloudException {
-        byte[] userDataBase64 = conf.userData != null ? conf.userData.getBytes() : null;
+        String base64UserData = null;
+        if (conf.userData != null) {
+            base64UserData = Base64.getEncoder().encodeToString(
+                    conf.userData.getBytes(StandardCharsets.UTF_8)
+            );
+        }
 
         ServerCreate sc = Builders.server()
                 .name(conf.vmName)
@@ -77,7 +84,7 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
                 .keypairName(conf.keyName)
                 .networks(List.of(conf.networkId))
                 .addSecurityGroup(conf.securityGroup)
-                .userData(Arrays.toString(userDataBase64))
+                .userData(base64UserData)
                 .build();
 
         try {
