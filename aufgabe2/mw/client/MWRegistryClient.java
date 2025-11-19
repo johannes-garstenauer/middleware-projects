@@ -40,7 +40,7 @@ public class MWRegistryClient extends MWShell {
 
     public boolean loginViaFile() {
         String[] filePaths = {
-                "aufgabe1/credentials.txt",
+                "aufgabe2/credentials.txt",
                 "credentials.txt"
         };
 

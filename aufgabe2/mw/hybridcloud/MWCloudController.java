@@ -694,7 +694,7 @@ public class MWCloudController {
             cloudController = new MWCloudController();
             cloudController.platform = cloudController.aws; // default platform
             cloudController.updateRegistryInstanceState();
-            //cloudController.startAutoScaling();
+            cloudController.startAutoScaling();
         } catch (MWCloudException e) {
             throw new RuntimeException(e);
         }

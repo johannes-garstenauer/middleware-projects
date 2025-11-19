@@ -1,8 +1,10 @@
 package mw.hybridcloud;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import java.util.Map;
 
-@SuppressWarnings("unused")
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class MWGnocchiInstanceResource {
     private String created_by_user_id;
     private String started_at;

@@ -171,10 +171,7 @@ public class MWCloudPlatformOpenStack implements MWCloudPlatform {
                     .request(MediaType.APPLICATION_JSON)
                     .header("X-Auth-Token", authToken)
                     .get(MWGnocchiInstanceResource.class);
-            MWGnocchiInstanceResource gnocciResource = resTarget.request(MediaType.APPLICATION_JSON)
-                    .header("X-Auth-Token", authToken)
-                    .get(MWGnocchiInstanceResource.class);
-            if (gnocciResource == null || gnocciResource.getMetrics() == null) {
+            if (resource == null || resource.getMetrics() == null) {
                 throw new MWCloudException("No Gnocchi resource/metrics found for VM " + vm.vmId);
             }
             String cpuMetricId = resource.getMetrics().get("cpu");
