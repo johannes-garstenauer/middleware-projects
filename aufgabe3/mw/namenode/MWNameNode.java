@@ -5,13 +5,18 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
+import java.util.Timer;
 
 import javax.inject.Singleton;
+import javax.ws.rs.DefaultValue;
 import javax.ws.rs.GET;
+import javax.ws.rs.POST;
 import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
+import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.UriBuilder;
 import javax.ws.rs.core.Response.Status;
@@ -23,11 +28,12 @@ import org.glassfish.jersey.server.ResourceConfig;
 @Singleton
 @Path("namenode")
 public class MWNameNode {
-    private Map<String, MWFileMetaData> files;
+    // 10 minutes
+    public static final long LEASE_DURATION_MS = 10 * 60 * 1000;
 
-    public MWNameNode() {
-        this.files = new HashMap<>();
-    }
+    private Map<String, MWFileMetaData> files = new HashMap<>();
+    private MWFileLeaseContainer fileLeases = new MWFileLeaseContainer(LEASE_DURATION_MS);
+
 
     private void addTestFiles() {
         // just for debugging...
@@ -47,13 +53,16 @@ public class MWNameNode {
     public Response listFiles() {
         // list all filenames with their corresponding size
         // we therefore create a new list of all files without their corresponding blocks
-        var filesWithoutBlocks = files
-            .values()
-            .stream()
-            .map(file ->
-                // set blocks to "null" here, so we don't send that property at all
-                new MWFileMetaData(file.name(), file.size(), null))
-            .toList();
+        List<MWFileMetaData> filesWithoutBlocks;
+        synchronized (files) {
+            filesWithoutBlocks = files
+                .values()
+                .stream()
+                .map(file ->
+                    // set blocks to "null" here, so we don't send that property at all
+                    new MWFileMetaData(file.name(), file.size(), null))
+                .toList();
+        }
 
         return Response.ok(filesWithoutBlocks).build();
     }
@@ -61,11 +70,75 @@ public class MWNameNode {
     @GET
     @Path("{file}")
     public Response getFile(@PathParam("file") String file) {
-        if (!files.containsKey(file)) {
-            return Response.status(Status.NOT_FOUND).build();
+        synchronized (files) {
+            if (!files.containsKey(file)) {
+                return Response.status(Status.NOT_FOUND).build();
+            }
+
+            return Response.ok(files.get(file)).build();
+        }
+    }
+
+    @POST
+    @Path("{file}/lock")
+    public Response lockFile(@PathParam("file") String file, @QueryParam("renewLease") String renewLease) {
+        synchronized (files) {
+            if (!files.containsKey(file)) {
+                // locking non existent files creates them
+                files.put(file, new MWFileMetaData(file, 0));
+            }
         }
 
-        return Response.ok(files.get(file)).build();
+        String leaseId;
+        synchronized (fileLeases) {
+            if (renewLease == null) {
+                // case 1: create new lease
+                if (fileLeases.hasActiveLease(file)) {
+                    return Response.status(Status.CONFLICT).build();
+                }
+
+                leaseId = fileLeases.renewLease(file);
+            } else {
+                // case 2: renew existing lease
+                if (!fileLeases.hasActiveLease(file)) {
+                    // no lease found for this file
+                    // instead of creating new lease, its probably better to tell the client
+                    // that the lease expired or did not exist in the first place
+                    return Response.status(Status.NOT_FOUND).build();
+                }
+
+                if (!fileLeases.getLease(file).leaseID().equals(renewLease)) {
+                    // wrong lease id
+                    return Response.status(Status.FORBIDDEN).build();    
+                }
+
+                leaseId = fileLeases.renewLease(file);
+            }
+        }
+
+        return Response.ok(leaseId).build();
+    }
+
+
+    @POST
+    @Path("{file}/unlock")
+    public Response unlockFile(@PathParam("file") String file, @QueryParam("leaseId") String leaseId) {
+        synchronized (fileLeases) {
+            MWFileLease lease = fileLeases.getLease(file);
+            if (lease == null) {
+                // no lease found for this file
+                return Response.status(Status.NOT_FOUND).build();
+            }
+
+            if (!lease.leaseID().equals(leaseId)) {
+                // wrong lease id
+                return Response.status(Status.FORBIDDEN).build();    
+            }
+
+            fileLeases.removeLease(file);
+        }
+
+        return Response.status(Status.OK).build();
     }
 
     public static void main(String[] args) {
