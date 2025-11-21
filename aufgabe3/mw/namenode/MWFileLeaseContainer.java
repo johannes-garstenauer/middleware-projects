@@ -6,8 +6,8 @@ import java.util.Map;
 
 public class MWFileLeaseContainer {
     private Map<String, MWFileLease> leases = new HashMap<>();
+    private MWUniqueIdGenerator idGenerator = new MWUniqueIdGenerator();
     private long leaseDurationMs;
-    private SecureRandom idSaltGenerator = new SecureRandom();
 
     public MWFileLeaseContainer(long leaseDurationMs) {
         this.leaseDurationMs = leaseDurationMs;
@@ -46,7 +46,7 @@ public class MWFileLeaseContainer {
      */
     public String renewLease(String file) {
         long expiryTimeMs = System.currentTimeMillis() + leaseDurationMs;
-        String leaseId = generateLeaseID(file, expiryTimeMs);
+        String leaseId = idGenerator.generateUniqueId(file);
         leases.put(file, new MWFileLease(leaseId, expiryTimeMs));
 
         return leaseId;
@@ -54,26 +54,6 @@ public class MWFileLeaseContainer {
 
     public void removeLease(String file) {
         leases.remove(file);
-    }
-
-    private String generateLeaseID(String file, long expiryTimeMs) {
-        byte[] salt = new byte[32];
-        idSaltGenerator.nextBytes(salt);
-
-        // convert salt bytes to hex string
-        StringBuilder saltHex = new StringBuilder(2 * salt.length);
-        for (int i = 0; i < salt.length; i++) {
-            String hex = Integer.toHexString(0xff & salt[i]);
-            if(hex.length() == 1) {
-                saltHex.append('0');
-            }
-            saltHex.append(hex);
-        }
-
-        // build unique key
-        // this has to contain the file and the time to make it unique
-        // additionally a secure salt is used so nobody can guess the lease id
-        return file + ":" + expiryTimeMs + ":" + saltHex;
     }
 
 }

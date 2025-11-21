@@ -2,16 +2,14 @@ package mw.namenode;
 
 import java.io.IOException;
 import java.net.URI;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.Scanner;
-import java.util.Timer;
 
 import javax.inject.Singleton;
-import javax.ws.rs.DefaultValue;
 import javax.ws.rs.GET;
 import javax.ws.rs.POST;
 import javax.ws.rs.Path;
@@ -28,19 +26,24 @@ import org.glassfish.jersey.server.ResourceConfig;
 @Singleton
 @Path("namenode")
 public class MWNameNode {
-    // 10 minutes
-    public static final long LEASE_DURATION_MS = 10 * 60 * 1000;
 
     private Map<String, MWFileMetaData> files = new HashMap<>();
-    private MWFileLeaseContainer fileLeases = new MWFileLeaseContainer(LEASE_DURATION_MS);
+    private MWFileLeaseContainer fileLeases;
+    private List<MWNodeMetaData> dataNodes;
+    private Random random = new Random();
+    private MWUniqueIdGenerator blockIdGenerator = new MWUniqueIdGenerator();
 
+    public MWNameNode(List<MWNodeMetaData> dataNodes, long leaseDurationMs) {
+        this.dataNodes = dataNodes;
+        this.fileLeases = new MWFileLeaseContainer(leaseDurationMs);
+    }
 
     private void addTestFiles() {
         // just for debugging...
         MWFileMetaData[] filesToAdd = new MWFileMetaData[] {
-            new MWFileMetaData("empty", 0, Arrays.asList(new MWNodeMetaData[] {})),
-            new MWFileMetaData("oneBlock", 100, Arrays.asList(new MWNodeMetaData[] {
-                new MWNodeMetaData("127.0.0.1", 8080)
+            new MWFileMetaData("empty", 0, Arrays.asList(new MWFileBlock[] {})),
+            new MWFileMetaData("oneBlock", 100, Arrays.asList(new MWFileBlock[] {
+                new MWFileBlock("dawdwa", new MWNodeMetaData("127.0.0.1", 8080))
             }))
         };
 
@@ -77,6 +80,21 @@ public class MWNameNode {
 
             return Response.ok(files.get(file)).build();
         }
+    }
+
+    @POST
+    @Path("{file}/alloc")
+    public Response allocBlock(@PathParam("file") String file) {
+        // alloc does not change metadata
+        // therefore we do not even create non-existent files
+
+        MWNodeMetaData dataNode = dataNodes.get(random.nextInt(dataNodes.size()));
+        String blockId;
+        synchronized (blockIdGenerator) {
+            blockId = blockIdGenerator.generateUniqueId(file);
+        }
+
+        return Response.ok(new MWFileBlock(blockId, dataNode)).build();
     }
 
     @POST
@@ -142,9 +160,33 @@ public class MWNameNode {
     }
 
     public static void main(String[] args) {
-        String SERVICE_TARGET = "http://0.0.0.0:60998";
+        // ###### 1. SETTINGS ######
+        // 10 minutes
+        final long LEASE_DURATION_MS = 10 * 60 * 1000;
 
-        MWNameNode service = new MWNameNode();
+        final String SERVICE_TARGET = "http://0.0.0.0:60998";
+
+        // ###### 2. PARSING ARGUMENTS ######
+        // TODO remove
+        if (args.length == 0) {
+            // for debugging: some default data nodes...
+            args = new String[] {"127.0.0.1,8080", "127.0.0.1,1203", "127.0.0.1,3094", "127.0.0.1,3000"};
+        }
+
+        List<MWNodeMetaData> dataNodes = Arrays.stream(args)
+            .map(arg -> {
+                String[] parts = arg.split(",");
+                if (parts.length != 2) {
+                    System.err.println("usage: MWNameNode [data-node-url1,data-node-port1] ...");
+                    System.exit(1);
+                }
+
+                return new MWNodeMetaData(parts[0], Integer.parseInt(parts[1]));
+            })
+            .toList();
+
+        // ###### 3. INITIALIZING & STARTING SERVER ######
+        MWNameNode service = new MWNameNode(dataNodes, LEASE_DURATION_MS);
         // TODO remove
         service.addTestFiles();
 
