@@ -103,7 +103,7 @@ public class MWNameNode {
         synchronized (files) {
             if (!files.containsKey(file)) {
                 // locking non existent files creates them
-                files.put(file, new MWFileMetaData(file, 0));
+                files.put(file, new MWFileMetaData(file, 0, null));
             }
         }
 

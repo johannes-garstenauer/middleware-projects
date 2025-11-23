@@ -11,11 +11,9 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.util.ArrayList;
-import java.util.LinkedList;
+import java.net.URI;
+import java.util.*;
 import java.util.function.IntPredicate;
-import java.util.List;
-import java.util.Arrays;
 import java.io.ByteArrayOutputStream;
 import java.nio.file.Paths;
 import java.nio.file.Path;
@@ -24,8 +22,10 @@ import java.nio.file.Files;
 import javax.ws.rs.client.Client;
 import javax.ws.rs.client.ClientBuilder;
 import javax.ws.rs.client.WebTarget;
+import javax.ws.rs.core.GenericType;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
+import javax.ws.rs.core.GenericType;
 import javax.ws.rs.client.Entity;
 
 
@@ -38,7 +38,8 @@ public class MWDFSClient {
 
     public MWDFSClient(String namenode_str) {
         Client client = ClientBuilder.newClient();
-        namenode = client.target("http://" + namenode_str + "/namenode");
+        URI baseUri = URI.create("http://"+namenode_str);
+        this.namenode = client.target(baseUri).path("namenode");
     }
 
 
@@ -46,9 +47,9 @@ public class MWDFSClient {
     // # LOW-LEVEL PROTOCOL HELPERS #
     // ##############################
 
-    private void uploadBlock(byte[] block, WebTarget datanode) throws MWWebServiceException {
+    private void uploadBlock(byte[] block, WebTarget datanode, String blockId) throws MWWebServiceException {
         validateBlockSize(block);
-        try (Response uploadResponse = datanode.request()
+        try (Response uploadResponse = datanode.path(blockId).request()
                 .post(Entity.entity(block, MediaType.APPLICATION_OCTET_STREAM_TYPE))) {
             if (uploadResponse.getStatus() < 200 || uploadResponse.getStatus() >= 300) {
                 throw new MWWebServiceException("Failed to upload block " +
@@ -88,13 +89,15 @@ public class MWDFSClient {
     // ###########################
 
     private void listFiles() throws MWWebServiceException {
-        Response response = namenode.path("/datablock/").request().get();
+        Response response = namenode.request().get();
         if (response.getStatus() != 200) {
             throw new MWWebServiceException(response.getStatus() + ": " + response.readEntity(String.class));
         }
-        String[] files = response.readEntity(String[].class);
-        for  (String file : files) {
-            System.out.println(file);
+        List<MWFileMetaData> files = response.readEntity(
+                new GenericType<List<MWFileMetaData>>() {}
+        );
+        for  (MWFileMetaData file : files) {
+            System.out.println(file.name() + " (" + file.size() + " bytes)");
         }
     }
 
@@ -110,7 +113,8 @@ public class MWDFSClient {
                 byte[] content = Files.readAllBytes(path);
                 for (int i = 0; i <= content.length; i += BLOCKSIZE) {
                     byte[] block = Arrays.copyOfRange(content, i, i + BLOCKSIZE);
-                    uploadBlock(block, namenode);
+                    String blockId = UUID.nameUUIDFromBytes(block).toString();
+                    uploadBlock(block, namenode, blockId);
                 }
             } catch (IOException e) {
                 System.err.println("Failed to read input file!");
