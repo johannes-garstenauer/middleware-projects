@@ -7,14 +7,10 @@ import mw.namenode.MWFileMetaData;
 import mw.namenode.MWNodeMetaData;
 import org.glassfish.grizzly.utils.ArrayUtils;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
+import java.io.*;
 import java.net.URI;
 import java.util.*;
 import java.util.function.IntPredicate;
-import java.io.ByteArrayOutputStream;
 import java.nio.file.Paths;
 import java.nio.file.Path;
 import java.nio.file.Files;
@@ -29,7 +25,7 @@ import javax.ws.rs.core.GenericType;
 import javax.ws.rs.client.Entity;
 
 
-
+// TODO: debugging script (run datanode upload file)
 
 public class MWDFSClient {
     // JAX-RS HTTP Client to reach namenode specified at command line
@@ -70,12 +66,7 @@ public class MWDFSClient {
         return block;
     }
 
-    private static void validateBlockId(String blockId) throws MWWebServiceException {
-        IntPredicate isValidChar = charcode -> Character.isLetterOrDigit(charcode) || charcode == '-';
-        if (blockId.isEmpty() || !blockId.chars().allMatch(isValidChar)) {
-            throw new MWWebServiceException("Validation for blockId " + blockId + "failed!");
-        }
-    }
+
 
     private static void validateBlockSize(byte[] block) throws MWWebServiceException {
         if (block.length > 1024*1024) { // 1MiB
@@ -103,24 +94,42 @@ public class MWDFSClient {
 
     private void uploadFile(String sPath, int replicas) throws MWWebServiceException {
         Path path = Paths.get(sPath);
-        // get new lease
-        try (Response response = namenode.path(path + "/lock").request().post(Entity.text(""))) {
+        // TODO: periodically refresh lease
+        try {
+            Response response = namenode.path(sPath + "/lock").request().post(Entity.text(""));
+            String leaseId = response.readEntity(String.class);
             if (response.getStatus() != 200) {
                 System.err.println("File is already locked!");
-                throw new MWWebServiceException(response.getStatus() + ": " + response.readEntity(String.class));
+                return;
             }
             try {
                 byte[] content = Files.readAllBytes(path);
                 for (int i = 0; i <= content.length; i += BLOCKSIZE) {
+                    Response allocResponse = namenode.path(sPath + "/alloc")
+                            .request().post(Entity.text(""));
+                    MWFileBlock fileBlock = allocResponse.readEntity(MWFileBlock.class);
+                    MWNodeMetaData nodeMetaData = fileBlock.node();
+                    String blockId = fileBlock.id();
                     byte[] block = Arrays.copyOfRange(content, i, i + BLOCKSIZE);
-                    String blockId = UUID.nameUUIDFromBytes(block).toString();
-                    uploadBlock(block, namenode, blockId);
+                    Client client = ClientBuilder.newClient();
+                    WebTarget datanode = client
+                            .target("http://" + nodeMetaData.host()
+                                    + ":" + nodeMetaData.port())
+                            .path("datablock");
+                    uploadBlock(block, datanode, blockId);
                 }
             } catch (IOException e) {
                 System.err.println("Failed to read input file!");
                 throw new MWWebServiceException("Failed to read input file!", e);
             }
+            Response closeResponse = namenode.path(path + "/unlock")
+                    .queryParam(leaseId).request().post(Entity.text(""));
+        } catch (Exception e) {
+            Response response = namenode.path(sPath).path("unlock")
+                    .request().post(Entity.text(""));
+            throw new MWWebServiceException(e);
         }
+
     }
 
     private void downloadFile(String path) throws MWWebServiceException {
@@ -128,12 +137,15 @@ public class MWDFSClient {
         try {
             Response r = namenode.path(path).request().get();
             if (r.getStatus() != 200) {
-                throw new MWWebServiceException(r.getStatus() + ": " + r.readEntity(String.class));
+                throw new MWWebServiceException(r.getStatus()
+                        + ": " + r.readEntity(String.class));
             }
             MWFileMetaData md = r.readEntity(MWFileMetaData.class);
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             for (MWFileBlock block : md.blocks()) {
-                WebTarget datanode = client.target(block.node().host() + ":" + block.node().port());
+                String blockId = block.id();
+                WebTarget datanode = client.target("http://" + block.node().host()
+                        + ":" + block.node().port()).path("datablock").path(blockId);
                 byte[] content = downloadBlock(datanode);
                 if (content != null && content.length > 0) {
                     baos.write(content);
@@ -155,6 +167,32 @@ public class MWDFSClient {
         // FIXME: Implement
     }
 
+    public void uploadDummyBlockToDataNode(MWNodeMetaData node,
+                                           String fileName,
+                                           int size) throws MWWebServiceException {
+
+
+
+        // create dummy content
+        byte[] dummy = new byte[size];
+        new Random().nextBytes(dummy);
+        File outputFile = new File(fileName);
+        try (FileOutputStream outputStream = new FileOutputStream(outputFile)) {
+            outputStream.write(dummy);
+        } catch (FileNotFoundException e) {
+            System.err.println("Did not find file" + fileName);
+        } catch (IOException e) {
+            throw new MWWebServiceException(e);
+        }
+
+        // build datanode target: http://<host>:<port>/datablock
+        Client client = ClientBuilder.newClient();
+        WebTarget datanode = client
+                .target("http://" + node.host() + ":" + node.port())
+                .path("datablock");
+
+        uploadFile(fileName, 1);
+    }
 
     // #########
     // # SHELL #
@@ -279,6 +317,11 @@ public class MWDFSClient {
             case "x":
             case "q":
                 return false;
+            case "create-debug":
+            case "cd":
+                uploadDummyBlockToDataNode(new MWNodeMetaData("127.0.0.1", 8080), "uilfssd", 8*1024*1024);
+                System.out.println("upload successful");
+                break;
             default:
                 throw new IllegalArgumentException("Unknown command: " + args[0] + "\nUse \"help\" to list available commands");
         }
