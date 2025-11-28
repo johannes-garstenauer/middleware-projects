@@ -159,6 +159,29 @@ public class MWNameNode {
         return Response.status(Status.OK).build();
     }
 
+    @POST
+    @Path("{file}/commit")
+    public Response updateFileMetadata(@PathParam("file") String file, MWFileMetaData newMetadata, @QueryParam("leaseId") String leaseId) {
+        synchronized (fileLeases) {
+            MWFileLease lease = fileLeases.getLease(file);
+            if (lease == null) {
+                // no lease found for this file
+                return Response.status(Status.NOT_FOUND).build();
+            }
+
+            if (!lease.leaseID().equals(leaseId)) {
+                // wrong lease id
+                return Response.status(Status.FORBIDDEN).build();
+            }
+        }
+
+        synchronized (files) {
+            files.put(file, newMetadata);
+        }
+
+        return Response.status(Status.OK).build();
+    }
+
     public static void main(String[] args) {
         // ###### 1. SETTINGS ######
         // 10 minutes
