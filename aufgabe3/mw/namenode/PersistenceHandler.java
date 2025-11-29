@@ -2,11 +2,15 @@ package mw.namenode;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 
 /**
  * Concrete PersistenceHandler that uses MWFileMetaData.deserialize to restore files (including blocks),
  * and handles leases. Snapshot format:
+ *   int datanodeCount
+ *     for each datanode: int hostLen, hostBytes, int port
  *   int filesCount
  *     for each file: int nameLen, nameBytes, int metaLen, metaBytes (meta == MWFileMetaData.serialize())
  *   int leasesCount
@@ -29,6 +33,33 @@ public class PersistenceHandler implements MWNameNodePersistence.PersistenceHand
     @Override
     public void restoreSnapshot(InputStream snapshotStream) throws IOException {
         DataInputStream in = new DataInputStream(new BufferedInputStream(snapshotStream));
+
+        int datanodeCount;
+        try {
+            datanodeCount = in.readInt();
+        } catch (EOFException e) {
+            // empty snapshot
+            return;
+        }
+        // read datanodes first
+        List<MWNodeMetaData> nodes = new ArrayList<>(Math.max(0, datanodeCount));
+        for (int i = 0; i < datanodeCount; i++) {
+            int hostLen = in.readInt();
+            if (hostLen < 0) throw new IOException("Invalid host length in snapshot datanode: " + hostLen);
+            byte[] hostBytes = new byte[hostLen];
+            in.readFully(hostBytes);
+            String host = new String(hostBytes, StandardCharsets.UTF_8);
+
+            int port = in.readInt();
+            nodes.add(new MWNodeMetaData(host, port));
+        }
+
+        // restore datanodes into nameNode
+        nameNode.persistenceClearDataNodes();
+        nameNode.persistenceSetDataNodes(nodes);
+
+
+
         int numEntries;
         try {
             numEntries = in.readInt();
@@ -51,8 +82,6 @@ public class PersistenceHandler implements MWNameNodePersistence.PersistenceHand
             byte[] meta = new byte[metaLen];
             in.readFully(meta);
 
-            // TODO: replace with actual restoration logic that knows how to deserialize `meta`
-            // e.g. applySnapshotFile(name, meta);
             applySnapshotFile(name, meta);
         }
 
@@ -97,8 +126,6 @@ public class PersistenceHandler implements MWNameNodePersistence.PersistenceHand
                 byte[] meta = new byte[metaLen];
                 in.readFully(meta);
 
-                // TODO: replace with actual apply logic
-                // e.g. applyCreateOrUpdate(name, meta);
                 applyCreateOrUpdate(name, meta);
                 break;
             }
@@ -109,8 +136,6 @@ public class PersistenceHandler implements MWNameNodePersistence.PersistenceHand
                 in.readFully(nameBytes);
                 String name = new String(nameBytes, StandardCharsets.UTF_8);
 
-                // TODO: replace with actual delete logic
-                // e.g. applyDelete(name);
                 applyDelete(name);
                 break;
             }

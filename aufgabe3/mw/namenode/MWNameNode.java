@@ -6,12 +6,7 @@ import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
-import java.util.Scanner;
+import java.util.*;
 
 import javax.inject.Singleton;
 import javax.ws.rs.*;
@@ -73,7 +68,24 @@ public class MWNameNode {
         }
     }
 
-    // TODO: when used?
+    void persistenceClearDataNodes() {
+        synchronized (this) {
+            this.dataNodes = new ArrayList<>();
+        }
+    }
+
+    void persistenceSetDataNodes(List<MWNodeMetaData> nodes) {
+        synchronized (this) {
+            this.dataNodes = new ArrayList<>(nodes);
+        }
+    }
+
+    List<MWNodeMetaData> persistenceGetAllDataNodesSnapshot() {
+        synchronized (this) {
+            return new ArrayList<>(this.dataNodes);
+        }
+    }
+
     void setPersistence(MWNameNodePersistence p) {
         this.persistence = p;
     }
@@ -84,6 +96,17 @@ public class MWNameNode {
     byte[] persistenceCreateSnapshot() throws IOException {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         try (DataOutputStream out = new DataOutputStream(baos)) {
+
+            // datanodes (minimal list of host:port entries)
+            List<MWNodeMetaData> datanodeSnapshot = persistenceGetAllDataNodesSnapshot();
+            out.writeInt(datanodeSnapshot.size());
+            for (MWNodeMetaData node : datanodeSnapshot) {
+                byte[] hostBytes = node.host().getBytes(StandardCharsets.UTF_8);
+                out.writeInt(hostBytes.length);
+                out.write(hostBytes);
+                out.writeInt(node.port());
+            }
+
             // files
             Map<String, MWFileMetaData> filesSnapshot;
             synchronized (files) {
