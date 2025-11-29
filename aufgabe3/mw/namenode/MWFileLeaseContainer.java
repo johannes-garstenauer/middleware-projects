@@ -3,6 +3,7 @@ package mw.namenode;
 import java.security.SecureRandom;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 public class MWFileLeaseContainer {
     private Map<String, MWFileLease> leases = new HashMap<>();
@@ -54,6 +55,28 @@ public class MWFileLeaseContainer {
 
     public void removeLease(String file) {
         leases.remove(file);
+    }
+
+    /**
+     * Return a shallow copy of current leases for snapshotting.
+     */
+    synchronized Map<String, MWFileLease> getAllLeasesSnapshot() {
+        return new HashMap<>(leases);
+    }
+
+    /**
+     * Restore an exact lease (used during snapshot/wal replay).
+     * Inserts the lease as-is (no new id generation). If the lease is already expired,
+     * it will NOT be inserted.
+     */
+    synchronized void restoreLease(String file, MWFileLease lease) {
+        Objects.requireNonNull(file);
+        Objects.requireNonNull(lease);
+        if (lease.expiryTimeMs() > System.currentTimeMillis()) {
+            leases.put(file, lease);
+        } else {
+            leases.remove(file);
+        }
     }
 
 }
