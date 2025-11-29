@@ -53,9 +53,6 @@ public class MWNameNode {
         }
     }
 
-    /**
-     * Restore a lease during snapshot/WAL replay.
-     */
     void persistenceRestoreLease(String name, MWFileLease lease) {
         synchronized (fileLeases) {
             fileLeases.restoreLease(name, lease);
@@ -91,7 +88,7 @@ public class MWNameNode {
     }
 
     /**
-     * Create snapshot bytes: files then leases.
+     * Create snapshot bytes: datanodes, files then leases.
      */
     byte[] persistenceCreateSnapshot() throws IOException {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -482,7 +479,7 @@ public class MWNameNode {
             java.nio.file.Path stateDir = Paths.get("state");
             MWNameNodePersistence persistence = new MWNameNodePersistence(stateDir);
             service.setPersistence(persistence);
-            // load snapshot + WAL
+            //load snapshot + WAL
             persistence.load(new PersistenceHandler(service));
         } catch (IOException e) {
             System.err.println("Failed to initialize persistence: " + e.getMessage());
@@ -522,6 +519,7 @@ public class MWNameNode {
         // on shutdown create snapshot to truncate WAL
         if (service.persistence != null) {
             try {
+                System.out.println("Writing final snapshot before shutdown...");
                 byte[] snap = service.persistenceCreateSnapshot();
                 service.persistence.snapshot(snap);
             } catch (IOException e) {

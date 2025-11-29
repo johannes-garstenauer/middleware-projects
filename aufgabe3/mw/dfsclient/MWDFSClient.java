@@ -1,16 +1,12 @@
 package mw.dfsclient;
 
-import mw.datanode.MWDataNode;
-import mw.datanode.MWDataNodeWebService;
 import mw.namenode.MWFileBlock;
 import mw.namenode.MWFileMetaData;
 import mw.namenode.MWNodeMetaData;
-import org.glassfish.grizzly.utils.ArrayUtils;
 
 import java.io.*;
 import java.net.URI;
 import java.util.*;
-import java.util.function.IntPredicate;
 import java.nio.file.Paths;
 import java.nio.file.Path;
 import java.nio.file.Files;
