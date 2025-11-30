@@ -2,6 +2,7 @@ package mw.dfsclient;
 
 import mw.namenode.MWFileBlock;
 import mw.namenode.MWFileMetaData;
+import mw.namenode.MWNameNode;
 import mw.namenode.MWNodeMetaData;
 
 import java.io.*;
@@ -10,6 +11,8 @@ import java.util.*;
 import java.nio.file.Paths;
 import java.nio.file.Path;
 import java.nio.file.Files;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 
 import javax.ws.rs.client.Client;
 import javax.ws.rs.client.ClientBuilder;
@@ -70,12 +73,27 @@ public class MWDFSClient {
         }
     }
 
+    private static String sha256Hex(byte[] data) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] digest = md.digest(data);
+
+            StringBuilder sb = new StringBuilder(digest.length * 2);
+            for (byte b : digest) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException("SHA-256 not supported", e);
+        }
+    }
+
 
     // ###########################
     // # COMMAND IMPLEMENTATIONS #
     // ###########################
 
-    private void listFiles() throws MWWebServiceException {
+    private List<MWFileMetaData> listFiles() throws MWWebServiceException {
         Response response = namenode.request().get();
         if (response.getStatus() != 200) {
             throw new MWWebServiceException(response.getStatus() + ": " + response.readEntity(String.class));
@@ -85,6 +103,46 @@ public class MWDFSClient {
         );
         for  (MWFileMetaData file : files) {
             System.out.println(file.name() + " (" + file.size() + " bytes)");
+        }
+        return files;
+    }
+
+    private static final long LEASE_RENEW_INTERVAL_MS = 10 * 60 * 1000 / 2; // from MWNameNode.java
+
+    private String renewLease(String filename, String leaseId) throws MWWebServiceException {
+        try (Response renewResponse = namenode
+                .path(filename)
+                .path("lock")
+                .queryParam("renewLease", leaseId)
+                .request()
+                .post(Entity.text(""))) {
+
+            int status = renewResponse.getStatus();
+
+            if (status == 200) {
+                // server returns (possibly new) leaseId in body
+                String newLeaseId = renewResponse.readEntity(String.class);
+                return newLeaseId;
+            }
+
+            String body;
+            try {
+                body = renewResponse.readEntity(String.class);
+            } catch (IllegalStateException ex) {
+                body = "<no body>";
+            }
+
+            if (status == 404) {
+                throw new MWWebServiceException(
+                        "Failed to renew lease for " + filename + ": lease expired or does not exist (404). " + body);
+            } else if (status == 403) {
+                throw new MWWebServiceException(
+                        "Failed to renew lease for " + filename + ": wrong lease ID (403). " + body);
+            } else {
+                throw new MWWebServiceException(
+                        "Failed to renew lease for " + filename + ": "
+                                + status + " " + body);
+            }
         }
     }
 
@@ -99,8 +157,40 @@ public class MWDFSClient {
             System.err.println("Failed to read input file!");
             throw new MWWebServiceException("Failed to read input file!", e);
         }
+
+        //check if file already present on the server
+        List<MWFileMetaData> files = listFiles();
+        List<String> filenames = files.stream()
+                .map(MWFileMetaData::name)
+                .toList();
+        if (filenames.contains(filename)) {
+            String downloadPath = "./downloads/" + filename;
+
+            // download server version
+            downloadFile(filename, downloadPath);
+
+            File serverFile = new File(downloadPath);
+            byte[] serverContent;
+            try {
+                serverContent = Files.readAllBytes(serverFile.toPath());
+            } catch (IOException e) {
+                System.err.println("Failed to read downloaded server file!");
+                throw new MWWebServiceException("Failed to read downloaded server file!", e);
+            }
+
+            String localSha = sha256Hex(content);
+            String serverSha = sha256Hex(serverContent);
+
+            if (localSha.equals(serverSha)) {
+                System.out.println("File '" + filename + "' already exists on the server with identical content.");
+                System.out.println("SHA-256: " + localSha);
+                return; // skip upload
+            } else {
+                System.out.println("File '" + filename + "' exists on the server but contents differ.");
+            }
+        }
+
         // get lease
-        // TODO: periodically refresh lease
         String leaseId = null;
         try {
             Client client = ClientBuilder.newClient();
@@ -118,9 +208,16 @@ public class MWDFSClient {
                 }
                 leaseId = lockResponse.readEntity(String.class);
             }
+
             // upload blocks
             ArrayList<MWFileBlock> blocks = new ArrayList<MWFileBlock>();
+            long nextLeaseRenew = System.currentTimeMillis() + LEASE_RENEW_INTERVAL_MS;
             for (int offset = 0; offset < content.length; offset += BLOCKSIZE) {
+                long now = System.currentTimeMillis();
+                if (now >= nextLeaseRenew) {
+                    leaseId = renewLease(filename, leaseId);
+                    nextLeaseRenew = now + LEASE_RENEW_INTERVAL_MS;
+                }
                 int end = Math.min(content.length, offset + BLOCKSIZE);
                 byte[] block = Arrays.copyOfRange(content, offset, end);
                 MWFileBlock fileBlock;
@@ -140,7 +237,7 @@ public class MWDFSClient {
                                 "Failed to allocate block for " + sPath + ": "
                                         + allocResponse.getStatus() + " " + body);
                     }
-                    
+
                     fileBlock = allocResponse.readEntity(MWFileBlock.class);
                     blocks.add(fileBlock);
                 }
@@ -206,10 +303,10 @@ public class MWDFSClient {
     }
 
 
-    private void downloadFile(String path) throws MWWebServiceException {
+    private void downloadFile(String filename, String savePath) throws MWWebServiceException {
         Client client = ClientBuilder.newClient();
         try {
-            Response r = namenode.path(path).request().get();
+            Response r = namenode.path(filename).request().get();
             if (r.getStatus() != 200) {
                 throw new MWWebServiceException(r.getStatus()
                         + ": " + r.readEntity(String.class));
@@ -226,7 +323,7 @@ public class MWDFSClient {
                 }
             }
             byte[] data = baos.toByteArray();
-            Path outputPath = Paths.get(path);
+            Path outputPath = Paths.get(savePath);
             if (outputPath.getParent() != null) {
                 Files.createDirectories(outputPath.getParent());
             }
@@ -376,8 +473,8 @@ public class MWDFSClient {
             case "download":
             case "down":
             case "d":
-                if (args.length != 2) throw new IllegalArgumentException("Usage: download <file>");
-                downloadFile(args[1]);
+                if (args.length != 3) throw new IllegalArgumentException("Usage: download <filename> <savePath>");
+                downloadFile(args[1], args[2]);
                 break;
             case "remove":
             case "rm":
