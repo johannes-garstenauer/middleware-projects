@@ -89,44 +89,122 @@ public class MWDFSClient {
     }
 
     private void uploadFile(String sPath, int replicas) throws MWWebServiceException {
-        Path path = Paths.get(sPath);
-        // TODO: periodically refresh lease
+        Path localPath = Paths.get(sPath);
+        File f = new File(sPath);
+        String filename = f.getName();
+        byte[] content;
         try {
-            Response response = namenode.path(sPath + "/lock").request().post(Entity.text(""));
-            String leaseId = response.readEntity(String.class);
-            if (response.getStatus() != 200) {
-                System.err.println("File is already locked!");
-                return;
-            }
-            try {
-                byte[] content = Files.readAllBytes(path);
-                for (int i = 0; i <= content.length; i += BLOCKSIZE) {
-                    Response allocResponse = namenode.path(sPath + "/alloc")
-                            .request().post(Entity.text(""));
-                    MWFileBlock fileBlock = allocResponse.readEntity(MWFileBlock.class);
-                    MWNodeMetaData nodeMetaData = fileBlock.node();
-                    String blockId = fileBlock.id();
-                    byte[] block = Arrays.copyOfRange(content, i, i + BLOCKSIZE);
-                    Client client = ClientBuilder.newClient();
-                    WebTarget datanode = client
-                            .target("http://" + nodeMetaData.host()
-                                    + ":" + nodeMetaData.port())
-                            .path("datablock");
-                    uploadBlock(block, datanode, blockId);
-                }
-            } catch (IOException e) {
-                System.err.println("Failed to read input file!");
-                throw new MWWebServiceException("Failed to read input file!", e);
-            }
-            Response closeResponse = namenode.path(path + "/unlock")
-                    .queryParam(leaseId).request().post(Entity.text(""));
-        } catch (Exception e) {
-            Response response = namenode.path(sPath).path("unlock")
-                    .request().post(Entity.text(""));
-            throw new MWWebServiceException(e);
+            content = Files.readAllBytes(localPath);
+        } catch (IOException e) {
+            System.err.println("Failed to read input file!");
+            throw new MWWebServiceException("Failed to read input file!", e);
         }
+        // get lease
+        // TODO: periodically refresh lease
+        String leaseId = null;
+        try {
+            Client client = ClientBuilder.newClient();
+            try (Response lockResponse = namenode.path(filename).path("lock")
+                    .request().post(Entity.text(""));) {
+                if (lockResponse.getStatus() != 200) {
+                    String body;
+                    try {
+                        body = lockResponse.readEntity(String.class);
+                    } catch (IllegalArgumentException e) {
+                        body = "<no body>";
+                    }
+                    throw new MWWebServiceException("Failed to aqcuire lease for "
+                            + localPath + ": " + lockResponse.getStatus() + " " + body);
+                }
+                leaseId = lockResponse.readEntity(String.class);
+            }
+            // upload blocks
+            ArrayList<MWFileBlock> blocks = new ArrayList<MWFileBlock>();
+            for (int offset = 0; offset < content.length; offset += BLOCKSIZE) {
+                int end = Math.min(content.length, offset + BLOCKSIZE);
+                byte[] block = Arrays.copyOfRange(content, offset, end);
+                MWFileBlock fileBlock;
+                try (Response allocResponse = namenode
+                        .path(filename)
+                        .path("alloc")
+                        .request()
+                        .post(Entity.text(""))) {
+                    if (allocResponse.getStatus() != 200) {
+                        String body;
+                        try {
+                            body = allocResponse.readEntity(String.class);
+                        } catch (IllegalStateException ex) {
+                            body = "<no body>";
+                        }
+                        throw new MWWebServiceException(
+                                "Failed to allocate block for " + sPath + ": "
+                                        + allocResponse.getStatus() + " " + body);
+                    }
+                    
+                    fileBlock = allocResponse.readEntity(MWFileBlock.class);
+                    blocks.add(fileBlock);
+                }
+                MWFileMetaData metaData = new MWFileMetaData(filename, (int) f.length(), blocks);
+                MWNodeMetaData nodeMetaData = fileBlock.node();
+                String blockId = fileBlock.id();
+                WebTarget datanode = client
+                        .target("http://" + nodeMetaData.host()
+                                + ":" + nodeMetaData.port())
+                        .path("datablock");
+                uploadBlock(block, datanode, blockId);
 
+                // commit metadata
+                try (Response commitResponse = namenode.path(filename)
+                        .path("commit")
+                        .queryParam("leaseId", leaseId)
+                        .request()
+                        .post(Entity.entity(metaData, MediaType.APPLICATION_JSON))) {
+                    if (commitResponse.getStatus() != 200) {
+                        String body;
+                        try {
+                            body = commitResponse.readEntity(String.class);
+                        } catch (IllegalStateException ex) {
+                            body = "<no body>";
+                        }
+                        throw new MWWebServiceException("Failed to commit block "
+                                + blockId + " for " + filename + ": "
+                                + commitResponse.getStatus() + " " + body);
+                    }
+                }
+            }
+        } catch (MWWebServiceException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new MWWebServiceException("Unexpected error while uploading" + filename, e);
+        } finally {
+            if (leaseId != null) {
+                try (Response unlockResponse = namenode
+                        .path(sPath)
+                        .path("unlock")
+                        .queryParam("leaseId", leaseId)
+                        .request()
+                        .post(Entity.text(""))) {
+                    if (unlockResponse.getStatus() != 200) {
+                        String body;
+                        try {
+                            body = unlockResponse.readEntity(String.class);
+                        } catch (IllegalStateException ex) {
+                            body = "<no body>";
+                        }
+                        System.err.println(
+                                "Failed to unlock " + sPath + " with leaseId " + leaseId + ": "
+                                        + unlockResponse.getStatus() + " " + body);
+                    }
+                } catch (Exception e) {
+                    System.err.println(
+                            "Exception while trying to unlock " + sPath
+                                    + " with leaseId " + leaseId + ": "
+                                    + e.getMessage());
+                }
+            }
+        }
     }
+
 
     private void downloadFile(String path) throws MWWebServiceException {
         Client client = ClientBuilder.newClient();
@@ -160,7 +238,11 @@ public class MWDFSClient {
     }
 
     private void removeFile(String path) throws MWWebServiceException {
-        // FIXME: Implement
+        try (Response response = namenode.path(path).request().delete();) {
+            if (response.getStatus() != 200) {
+                throw new MWWebServiceException(response.getStatus() + ": " + response.readEntity(String.class));
+            }
+        }
     }
 
     public void uploadDummyBlockToDataNode(MWNodeMetaData node,
@@ -180,12 +262,6 @@ public class MWDFSClient {
         } catch (IOException e) {
             throw new MWWebServiceException(e);
         }
-
-        // build datanode target: http://<host>:<port>/datablock
-        Client client = ClientBuilder.newClient();
-        WebTarget datanode = client
-                .target("http://" + node.host() + ":" + node.port())
-                .path("datablock");
 
         uploadFile(fileName, 1);
     }
