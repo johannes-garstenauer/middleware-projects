@@ -37,13 +37,16 @@ public record MWFileMetaData(String name, int size, List<MWFileBlock> blocks) {
                 out.writeInt(blockIdBytes.length);
                 out.write(blockIdBytes);
 
-                MWNodeMetaData node = b.node();
-                String host = node.host();
-                byte[] hostBytes = host.getBytes(StandardCharsets.UTF_8);
-                out.writeInt(hostBytes.length);
-                out.write(hostBytes);
+                List<MWNodeMetaData> nodes = b.nodes();
+                out.writeInt(nodes.size());
+                for (MWNodeMetaData node : nodes) {
+                    String host = node.host();
+                    byte[] hostBytes = host.getBytes(StandardCharsets.UTF_8);
+                    out.writeInt(hostBytes.length);
+                    out.write(hostBytes);
 
-                out.writeInt(node.port());
+                    out.writeInt(node.port());
+                }
             }
             out.flush();
             return baos.toByteArray();
@@ -70,16 +73,23 @@ public record MWFileMetaData(String name, int size, List<MWFileBlock> blocks) {
                 in.readFully(blockIdBytes);
                 String blockId = new String(blockIdBytes, StandardCharsets.UTF_8);
 
-                int hostLen = in.readInt();
-                if (hostLen < 0) throw new IOException("Invalid host length: " + hostLen);
-                byte[] hostBytes = new byte[hostLen];
-                in.readFully(hostBytes);
-                String host = new String(hostBytes, StandardCharsets.UTF_8);
+                // read number of nodes for this block
+                int nodesCount = in.readInt();
+                if (nodesCount < 0) throw new IOException("Invalid nodes count: " + nodesCount);
+                List<MWNodeMetaData> nodes = new ArrayList<>(nodesCount);
+                for (int j = 0; j < nodesCount; j++) {
+                    int hostLen = in.readInt();
+                    if (hostLen < 0) throw new IOException("Invalid host length: " + hostLen);
+                    byte[] hostBytes = new byte[hostLen];
+                    in.readFully(hostBytes);
+                    String host = new String(hostBytes, StandardCharsets.UTF_8);
 
-                int port = in.readInt();
+                    int port = in.readInt();
 
-                MWNodeMetaData node = new MWNodeMetaData(host, port);
-                MWFileBlock block = new MWFileBlock(blockId, node);
+                    nodes.add(new MWNodeMetaData(host, port));
+                }
+
+                MWFileBlock block = new MWFileBlock(blockId, nodes);
                 blocks.add(block);
             }
 
