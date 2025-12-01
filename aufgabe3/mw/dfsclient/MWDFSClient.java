@@ -24,7 +24,6 @@ import javax.ws.rs.core.GenericType;
 import javax.ws.rs.client.Entity;
 
 
-// TODO: debugging script (run datanode upload file)
 
 public class MWDFSClient {
     // JAX-RS HTTP Client to reach namenode specified at command line
@@ -120,7 +119,6 @@ public class MWDFSClient {
             int status = renewResponse.getStatus();
 
             if (status == 200) {
-                // server returns (possibly new) leaseId in body
                 String newLeaseId = renewResponse.readEntity(String.class);
                 return newLeaseId;
             }
@@ -242,13 +240,15 @@ public class MWDFSClient {
                     blocks.add(fileBlock);
                 }
                 MWFileMetaData metaData = new MWFileMetaData(filename, (int) f.length(), blocks);
-                MWNodeMetaData nodeMetaData = fileBlock.node();
+                List<MWNodeMetaData> nodeMetaData = fileBlock.nodes();
                 String blockId = fileBlock.id();
-                WebTarget datanode = client
-                        .target("http://" + nodeMetaData.host()
-                                + ":" + nodeMetaData.port())
-                        .path("datablock");
-                uploadBlock(block, datanode, blockId);
+                for (MWNodeMetaData node : nodeMetaData) {
+                    WebTarget datanode = client
+                            .target("http://" + node.host()
+                                    + ":" + node.port())
+                            .path("datablock");
+                    uploadBlock(block, datanode, blockId);
+                }
 
                 // commit metadata
                 try (Response commitResponse = namenode.path(filename)
@@ -315,12 +315,44 @@ public class MWDFSClient {
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             for (MWFileBlock block : md.blocks()) {
                 String blockId = block.id();
-                WebTarget datanode = client.target("http://" + block.node().host()
-                        + ":" + block.node().port()).path("datablock").path(blockId);
-                byte[] content = downloadBlock(datanode);
-                if (content != null && content.length > 0) {
-                    baos.write(content);
+                List<MWNodeMetaData> nodes = block.nodes();
+                if (nodes == null || nodes.isEmpty()) {
+                    throw new MWWebServiceException("No replicas available for block " + blockId);
                 }
+                byte[] blockContent = null;
+                Exception lastError = null;
+                for (MWNodeMetaData node : nodes) {
+                    WebTarget datanode = client
+                            .target("http://" + node.host() + ":" + node.port())
+                            .path("datablock")
+                            .path(blockId);
+
+                    try {
+                        byte[] content = downloadBlock(datanode);
+                        if (content != null && content.length > 0) {
+                            blockContent = content;
+                            break; // success, stop trying other replicas
+                        } else {
+                            System.err.println("Received empty content for block "
+                                    + blockId + " from " + node.host() + ":" + node.port());
+                        }
+                    } catch (Exception e) {
+                        lastError = e;
+                        System.err.println("Failed to download block "
+                                + blockId + " from " + node.host() + ":" + node.port()
+                                + ": " + e.getMessage());
+                        // continue with next node
+                    }
+                }if (blockContent == null) {
+                    if (lastError != null) {
+                        throw new MWWebServiceException(
+                                "Failed to download block " + blockId + " from all replicas", lastError);
+                    } else {
+                        throw new MWWebServiceException(
+                                "Failed to download block " + blockId + " from all replicas (no valid content)");
+                    }
+                }
+                    baos.write(blockContent);
             }
             byte[] data = baos.toByteArray();
             Path outputPath = Paths.get(savePath);

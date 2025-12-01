@@ -212,7 +212,7 @@ public class MWNameNode {
         MWFileMetaData[] filesToAdd = new MWFileMetaData[] {
             new MWFileMetaData("empty", 0, Arrays.asList(new MWFileBlock[] {})),
             new MWFileMetaData("oneBlock", 100, Arrays.asList(new MWFileBlock[] {
-                new MWFileBlock("dawdwa", new MWNodeMetaData("127.0.0.1", 8080))
+                new MWFileBlock("dawdwa", Collections.singletonList(new MWNodeMetaData("127.0.0.1", 8080)))
             }))
         };
 
@@ -253,17 +253,22 @@ public class MWNameNode {
 
     @POST
     @Path("{file}/alloc")
-    public Response allocBlock(@PathParam("file") String file) {
+    public Response allocBlock(@PathParam("file") String file, @QueryParam("replicas")  int replicas) {
         // alloc does not change metadata
         // therefore we do not even create non-existent files
+        if (replicas > dataNodes.size()) {
+            replicas = dataNodes.size();
+        }
+        List<MWNodeMetaData> shuffled = new ArrayList<>(dataNodes);
+        Collections.shuffle(shuffled, random);
+        List<MWNodeMetaData> chosenNodes = new ArrayList<>(shuffled.subList(0, replicas));
 
-        MWNodeMetaData dataNode = dataNodes.get(random.nextInt(dataNodes.size()));
         String blockId;
         synchronized (blockIdGenerator) {
             blockId = blockIdGenerator.generateUniqueId(file);
         }
 
-        return Response.ok(new MWFileBlock(blockId, dataNode)).build();
+        return Response.ok(new MWFileBlock(blockId, chosenNodes)).build();
     }
 
     @POST
@@ -456,7 +461,7 @@ public class MWNameNode {
         // TODO remove
         if (args.length == 0) {
             // for debugging: some default data nodes...
-            args = new String[] {"127.0.0.1,8080", "127.0.0.1,1203", "127.0.0.1,3094", "127.0.0.1,3000"};
+            args = new String[] {"127.0.0.1,8080"};
         }
 
         List<MWNodeMetaData> dataNodes = Arrays.stream(args)
