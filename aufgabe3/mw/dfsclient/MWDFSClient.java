@@ -93,7 +93,7 @@ public class MWDFSClient {
     // ###########################
 
     private List<MWFileMetaData> listFiles() throws MWWebServiceException {
-        Response response = namenode.request().get();
+        Response response = namenode.request(MediaType.APPLICATION_JSON).get();
         if (response.getStatus() != 200) {
             throw new MWWebServiceException(response.getStatus() + ": " + response.readEntity(String.class));
         }
@@ -113,7 +113,7 @@ public class MWDFSClient {
                 .path(filename)
                 .path("lock")
                 .queryParam("renewLease", leaseId)
-                .request()
+                .request(MediaType.APPLICATION_JSON)
                 .post(Entity.text(""))) {
 
             int status = renewResponse.getStatus();
@@ -222,7 +222,7 @@ public class MWDFSClient {
                 try (Response allocResponse = namenode
                         .path(filename)
                         .path("alloc")
-                        .request()
+                        .request(MediaType.APPLICATION_JSON)
                         .post(Entity.text(""))) {
                     if (allocResponse.getStatus() != 200) {
                         String body;
@@ -254,7 +254,7 @@ public class MWDFSClient {
                 try (Response commitResponse = namenode.path(filename)
                         .path("commit")
                         .queryParam("leaseId", leaseId)
-                        .request()
+                        .request(MediaType.APPLICATION_JSON)
                         .post(Entity.entity(metaData, MediaType.APPLICATION_JSON))) {
                     if (commitResponse.getStatus() != 200) {
                         String body;
@@ -306,7 +306,7 @@ public class MWDFSClient {
     private void downloadFile(String filename, String savePath) throws MWWebServiceException {
         Client client = ClientBuilder.newClient();
         try {
-            Response r = namenode.path(filename).request().get();
+            Response r = namenode.path(filename).request(MediaType.APPLICATION_JSON).get();
             if (r.getStatus() != 200) {
                 throw new MWWebServiceException(r.getStatus()
                         + ": " + r.readEntity(String.class));

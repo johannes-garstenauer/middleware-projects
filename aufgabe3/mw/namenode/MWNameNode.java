@@ -236,6 +236,19 @@ public class MWNameNode {
                 .toList();
         }
 
+        System.out.println("DEBUG:");
+        // print for each file its name and size what blocks it has and where they are replicated
+        for (MWFileMetaData file : files.values()) {
+            System.out.println("File: " + file.name() + " Size: " + file.size());
+            for (MWFileBlock block : file.blocks()) {
+                System.out.print("  Block: " + block.id() + " on nodes: ");
+                for (MWNodeMetaData node : block.nodes()) {
+                    System.out.print(node.host() + ":" + node.port() + " ");
+                }
+                System.out.println();
+            }
+        }
+
         return Response.ok(filesWithoutBlocks).build();
     }
 
@@ -496,7 +509,7 @@ public class MWNameNode {
         service.addTestFiles();
 
         ResourceConfig rc = new ResourceConfig().register(service);
-        rc.register(MWErrorHandler.class);
+        rc.register(MWErrorHandler.class).register(org.glassfish.jersey.jackson.JacksonFeature.class);;
 
         URI uri = UriBuilder.fromUri(SERVICE_TARGET).build();
         HttpServer server = GrizzlyHttpServerFactory.createHttpServer(uri, rc);
