@@ -50,6 +50,7 @@ public class MWDFSClient {
                         ": HTTP " + uploadResponse.getStatus());
             }
         } catch (Exception e) {
+            System.err.println(e.getMessage());
             throw new MWWebServiceException("Failed to upload block ", e);
         }
     }
@@ -189,6 +190,7 @@ public class MWDFSClient {
         }
 
         // get lease
+        System.out.println("DEBUG: Acquiring lease");
         String leaseId = null;
         try {
             Client client = ClientBuilder.newClient();
@@ -207,6 +209,7 @@ public class MWDFSClient {
                 leaseId = lockResponse.readEntity(String.class);
             }
 
+            System.out.println("DEBUG: UPLOAD BLOCKS");
             // upload blocks
             ArrayList<MWFileBlock> blocks = new ArrayList<MWFileBlock>();
             long nextLeaseRenew = System.currentTimeMillis() + LEASE_RENEW_INTERVAL_MS;
@@ -222,6 +225,7 @@ public class MWDFSClient {
                 try (Response allocResponse = namenode
                         .path(filename)
                         .path("alloc")
+                        //.queryParam("replicas", replicas) // TODO: replicas parameter is currently unused in MWNameNode
                         .request(MediaType.APPLICATION_JSON)
                         .post(Entity.text(""))) {
                     if (allocResponse.getStatus() != 200) {
@@ -251,6 +255,7 @@ public class MWDFSClient {
                 }
 
                 // commit metadata
+                System.out.println("DEBUG: Committing block " + blockId);
                 try (Response commitResponse = namenode.path(filename)
                         .path("commit")
                         .queryParam("leaseId", leaseId)
@@ -392,7 +397,7 @@ public class MWDFSClient {
             throw new MWWebServiceException(e);
         }
 
-        uploadFile(fileName, 1);
+        uploadFile(fileName, 2);
     }
 
     // #########
