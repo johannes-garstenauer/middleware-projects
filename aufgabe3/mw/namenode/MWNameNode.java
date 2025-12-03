@@ -17,6 +17,7 @@ import javax.ws.rs.core.Response.Status;
 import org.glassfish.grizzly.http.server.HttpServer;
 import org.glassfish.jersey.grizzly2.httpserver.GrizzlyHttpServerFactory;
 import org.glassfish.jersey.server.ResourceConfig;
+import org.glassfish.jersey.jsonb.JsonBindingFeature;
 
 @Singleton
 @Path("namenode")
@@ -474,7 +475,7 @@ public class MWNameNode {
         // TODO remove
         if (args.length == 0) {
             // for debugging: some default data nodes...
-            args = new String[] {"127.0.0.1,8080"};
+            args = new String[] {"127.0.0.1,8080", "127.0.0.1,8081"};
         }
 
         List<MWNodeMetaData> dataNodes = Arrays.stream(args)
@@ -509,7 +510,7 @@ public class MWNameNode {
         service.addTestFiles();
 
         ResourceConfig rc = new ResourceConfig().register(service);
-        rc.register(MWErrorHandler.class).register(org.glassfish.jersey.jackson.JacksonFeature.class);;
+        rc.register(MWErrorHandler.class).register(JsonBindingFeature.class);
 
         URI uri = UriBuilder.fromUri(SERVICE_TARGET).build();
         HttpServer server = GrizzlyHttpServerFactory.createHttpServer(uri, rc);

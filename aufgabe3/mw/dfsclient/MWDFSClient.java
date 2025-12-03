@@ -68,7 +68,7 @@ public class MWDFSClient {
 
 
     private static void validateBlockSize(byte[] block) throws MWWebServiceException {
-        if (block.length > 1024*1024) { // 1MiB
+        if (block.length > BLOCKSIZE) {
             throw new MWWebServiceException("Block size too large!");
         }
     }
@@ -225,7 +225,7 @@ public class MWDFSClient {
                 try (Response allocResponse = namenode
                         .path(filename)
                         .path("alloc")
-                        //.queryParam("replicas", replicas) // TODO: replicas parameter is currently unused in MWNameNode
+                        .queryParam("replicas", replicas)
                         .request(MediaType.APPLICATION_JSON)
                         .post(Entity.text(""))) {
                     if (allocResponse.getStatus() != 200) {
@@ -246,13 +246,24 @@ public class MWDFSClient {
                 MWFileMetaData metaData = new MWFileMetaData(filename, (int) f.length(), blocks);
                 List<MWNodeMetaData> nodeMetaData = fileBlock.nodes();
                 String blockId = fileBlock.id();
+                boolean uploadedToAtLeastOneNode = false;
                 for (MWNodeMetaData node : nodeMetaData) {
                     WebTarget datanode = client
                             .target("http://" + node.host()
                                     + ":" + node.port())
                             .path("datablock");
-                    uploadBlock(block, datanode, blockId);
+                    try {
+                        uploadBlock(block, datanode, blockId);
+                        uploadedToAtLeastOneNode = true;
+                    } catch (MWWebServiceException e) {
+                        System.err.println("Failed to upload block " + sPath + " to data node " + node);
+                    }
                 }
+                if (!uploadedToAtLeastOneNode) {
+                    throw new MWWebServiceException(
+                            "Failed to upload block " + sPath + " to any data node");
+                }
+
 
                 // commit metadata
                 System.out.println("DEBUG: Committing block " + blockId);
@@ -281,7 +292,7 @@ public class MWDFSClient {
         } finally {
             if (leaseId != null) {
                 try (Response unlockResponse = namenode
-                        .path(sPath)
+                        .path(filename)
                         .path("unlock")
                         .queryParam("leaseId", leaseId)
                         .request()
