@@ -29,6 +29,7 @@ public class MWDFSClient {
     // JAX-RS HTTP Client to reach namenode specified at command line
     private final WebTarget namenode;
     private static final int BLOCKSIZE = 1024*1024;
+    private static final long LEASE_RENEW_INTERVAL_MS = 10 * 60 * 1000 / 2; // from MWNameNode.java
 
     public MWDFSClient(String namenode_str) {
         Client client = ClientBuilder.newClient();
@@ -107,7 +108,7 @@ public class MWDFSClient {
         return files;
     }
 
-    private static final long LEASE_RENEW_INTERVAL_MS = 10 * 60 * 1000 / 2; // from MWNameNode.java
+
 
     private String renewLease(String filename, String leaseId) throws MWWebServiceException {
         try (Response renewResponse = namenode
@@ -255,13 +256,14 @@ public class MWDFSClient {
                     try {
                         uploadBlock(block, datanode, blockId);
                         uploadedToAtLeastOneNode = true;
+                        System.out.println("DEBUG: BLOCK " + blockId + " UPLOADED to: "+ node);
                     } catch (MWWebServiceException e) {
-                        System.err.println("Failed to upload block " + sPath + " to data node " + node);
+                        System.err.println("Failed to upload block " + blockId+ " to data node " + node);
                     }
                 }
                 if (!uploadedToAtLeastOneNode) {
                     throw new MWWebServiceException(
-                            "Failed to upload block " + sPath + " to any data node");
+                            "Failed to upload block " + blockId + " to any data node");
                 }
 
 
