@@ -15,7 +15,7 @@ public class MWKeyValueReader {
         boolean endOfLine = false;
         int start = 0;
         while (start < line.length()) {
-            int end = line.indexOf(" ", start);
+            int end = line.indexOf("\t", start);
             if (end == -1) {
                 end = line.length();
             }
