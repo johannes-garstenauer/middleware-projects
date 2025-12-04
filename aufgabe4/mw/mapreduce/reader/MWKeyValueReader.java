@@ -5,9 +5,9 @@ import mw.mapreduce.util.MWPair;
 import java.util.ArrayList;
 
 public class MWKeyValueReader {
-    public final String key;
-    MWKeyValueReader ( String key ){
-        this.key = key;
+    public final String value;
+    MWKeyValueReader (String value){
+        this.value = value;
     }
 
     ArrayList<MWPair<String, String>> getPairs(String line) {
@@ -19,8 +19,8 @@ public class MWKeyValueReader {
             if (end == -1) {
                 end = line.length();
             }
-            String value = line.substring(start, end);
-            if (!value.isEmpty()) {
+            String key = line.substring(start, end);
+            if (!key.isEmpty()) {
                 result.add(new MWPair<>(key, value));
             }
             start = end + 1;
