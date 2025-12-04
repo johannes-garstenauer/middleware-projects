@@ -9,17 +9,20 @@ import java.util.PriorityQueue;
 
 
 public class MWMergingReader {
-    static class MWListComparator implements Comparator<ArrayList<MWPair<String, String>>> {
-        public int compare(ArrayList<MWPair<String, String>> l1, ArrayList<MWPair<String, String>> l2) {
-            return l1.getFirst().getKey().compareTo(l2.getFirst().getKey());
-        }
-    }
+    //static class MWListComparator implements Comparator<ArrayList<MWPair<String, String>>> {
+    //    public int compare(ArrayList<MWPair<String, String>> l1, ArrayList<MWPair<String, String>> l2) {
+    //        return l1.getFirst().getKey().compareTo(l2.getFirst().getKey());
+    //    }
+    //}
 
-    private final Comparator<ArrayList<MWPair<String, String>>> comparator = new MWListComparator();
-    private final PriorityQueue<ArrayList<MWPair<String, String>>> queue =
-            new PriorityQueue<ArrayList<MWPair<String, String>>>(comparator);
+    private final PriorityQueue<ArrayList<MWPair<String, String>>> queue;
+    public MWMergingReader(Comparator<? super MWPair<String, String>> pairComparator) {
+        // Comparator that lifts a pair-comparator to a "list of pairs" comparator
+        Comparator<ArrayList<MWPair<String, String>>> listComparator =
+                (l1, l2)
+                        -> pairComparator.compare(l1.getFirst(), l2.getFirst());
 
-    public MWMergingReader() {
+        this.queue = new PriorityQueue<>(listComparator);
     }
 
     public void addToQueue(ArrayList<MWPair<String, String>> pairs){
