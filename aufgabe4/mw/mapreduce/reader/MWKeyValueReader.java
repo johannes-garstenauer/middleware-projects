@@ -5,7 +5,7 @@ import mw.mapreduce.util.MWPair;
 import java.io.IOException;
 import java.util.ArrayList;
 
-public class MWKeyValueReader implements MWReader {
+public class MWKeyValueReader implements MWReader<MWPair<String, String>> {
     private final String value;
     private final String line;
     private int position = 0;

@@ -8,7 +8,7 @@ import java.util.PriorityQueue;
 
 
 
-public class MWMergingReader {
+public class MWMergingReader implements MWReader<MWPair<String, String>> {
     //static class MWListComparator implements Comparator<ArrayList<MWPair<String, String>>> {
     //    public int compare(ArrayList<MWPair<String, String>> l1, ArrayList<MWPair<String, String>> l2) {
     //        return l1.getFirst().getKey().compareTo(l2.getFirst().getKey());
@@ -23,6 +23,17 @@ public class MWMergingReader {
                         -> pairComparator.compare(l1.getFirst(), l2.getFirst());
 
         this.queue = new PriorityQueue<>(listComparator);
+    }
+
+    @Override
+    public MWPair<String, String> read() {
+        if (queue.isEmpty()) {return null;}
+        ArrayList<MWPair<String, String>> pairs = queue.poll();
+        MWPair<String, String> head = pairs.removeFirst();
+        if (!pairs.isEmpty()) {
+            queue.add(pairs);
+        }
+        return head;
     }
 
     public void addToQueue(ArrayList<MWPair<String, String>> pairs){
