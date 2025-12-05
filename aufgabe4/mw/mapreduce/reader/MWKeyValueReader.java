@@ -2,29 +2,47 @@ package mw.mapreduce.reader;
 
 import mw.mapreduce.util.MWPair;
 
+import java.io.IOException;
 import java.util.ArrayList;
 
-public class MWKeyValueReader {
-    public final String value;
-    MWKeyValueReader (String value){
+public class MWKeyValueReader implements MWReader {
+    private final String value;
+    private final String line;
+    private int position = 0;
+
+    MWKeyValueReader(String line, String value) {
+        this.line = line;
         this.value = value;
     }
 
-    ArrayList<MWPair<String, String>> getPairs(String line) {
-        ArrayList<MWPair<String, String>> result = new  ArrayList<MWPair<String, String>>();
-        boolean endOfLine = false;
-        int start = 0;
-        while (start < line.length()) {
-            int end = line.indexOf("\t", start);
-            if (end == -1) {
-                end = line.length();
-            }
-            String key = line.substring(start, end);
-            if (!key.isEmpty()) {
-                result.add(new MWPair<>(key, value));
-            }
-            start = end + 1;
+    @Override
+    public MWPair<String, String> read(){
+        int length = line.length();
+        // end of line reached
+        if (position >= length) {
+            return null;
+        }
+        int start = position;
+        int end = line.indexOf('\t', start);
+        if (end == -1) {
+            end = length;
+            position = length;
+        } else {
+            position = end + 1;
+        }
+        String key = line.substring(start, end);
+        if (key.isEmpty()) {
+            // if key is empty, try to read the next token
+            return read();
+        }
+        return new MWPair<>(key, value);
+    }
 
+    public ArrayList<MWPair<String, String>> getAllPairs() {
+        ArrayList<MWPair<String, String>> result = new ArrayList<>();
+        MWPair<String, String> pair;
+        while ((pair = read()) != null) {
+            result.add(pair);
         }
         return result;
     }
