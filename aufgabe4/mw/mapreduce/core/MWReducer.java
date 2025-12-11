@@ -18,6 +18,7 @@ public class MWReducer implements Runnable {
             while ((pair = reader.read()) != null) {
                 reduce(pair.getKey(), pair.getValue(), context);
             }
+            context.outputComplete();
         } catch (Exception e) {
             throw new RuntimeException(e);
         }

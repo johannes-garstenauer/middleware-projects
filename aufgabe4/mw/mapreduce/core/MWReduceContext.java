@@ -30,6 +30,13 @@ public class MWReduceContext implements MWContext<Iterable<String>> {
     
     @Override
     public void outputComplete() throws IOException {
+        File dir = outputFile.getParentFile();
+        if (!dir.exists() && !dir.mkdirs()) {
+            throw new IOException("Cannot create output directory: " + dir);
+        }
+        outputFile.createNewFile();
+        System.out.println("reduce output complete: " + outputFile.getAbsolutePath());
+
         try (BufferedWriter writer = new BufferedWriter(new FileWriter(outputFile))) {
             for (MWPair<String,String> pair : results) {
                 writer.write(pair.getKey());

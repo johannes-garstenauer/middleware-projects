@@ -21,17 +21,16 @@ public class MWMapContext implements MWContext<String>{
         }
     }
 
-    private final MWKeyValueReader kvreader;
+    private final MWReader<MWPair<String, String>> kvreader;
     private final Comparator<String> stringComparator;
     private final Comparator<MWPair<String, String>> pairComparator;
     private final File outputDir;
     private final int numPartitions;
     private final List<List<MWPair<String,String>>> partitions;
 
-    public MWMapContext(Comparator<String> comparator, String inputFile,
+    public MWMapContext(Comparator<String> comparator, MWReader<MWPair<String, String>> inputReader,
                         File outputDir, int numPartitions) throws IOException {
-        MWLineReader lineReader = new MWLineReader(inputFile);
-        this.kvreader = new MWKeyValueReader(lineReader);
+        this.kvreader = inputReader;
         this.stringComparator = comparator;
         this.outputDir = outputDir;
         this.numPartitions = numPartitions;
@@ -61,6 +60,7 @@ public class MWMapContext implements MWContext<String>{
             List<MWPair<String, String>> partition = partitions.get(i);
             partition.sort(pairComparator);
             File outputFile = new File(outputDir, "map-out-partition-" + i + ".txt");
+            System.out.println("map output complete: " + outputFile.getAbsolutePath());
             try (BufferedWriter writer = new BufferedWriter(new FileWriter(outputFile))) {
                 for (MWPair<String, String> pair : partition) {
                     writer.write(pair.getKey());

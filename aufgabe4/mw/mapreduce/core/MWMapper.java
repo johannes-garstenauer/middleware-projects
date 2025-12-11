@@ -18,6 +18,7 @@ public class MWMapper implements Runnable {
             while ((pair = reader.read()) != null) {
                 map(pair.getKey(), pair.getValue(), context);
             }
+            context.outputComplete();
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
