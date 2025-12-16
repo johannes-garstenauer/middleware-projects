@@ -103,7 +103,10 @@ public class MWMapReduce {
         this.executorService = Executors.newFixedThreadPool(threads);
 
         for (int i = 0; i < workerConfiguration.reducerWorkers; i++) {
-            MWMergingReader mergingReader = new MWMergingReader(KEY_COMPARATOR);
+            Comparator<String> keyComparator = app.job.getComparator();
+            Comparator<MWPair<String, String>> pairComparator = (a, b) -> keyComparator.compare(a.getKey(), b.getKey());
+            MWMergingReader mergingReader = new MWMergingReader(pairComparator);
+
             for (int j = 0; j < workerConfiguration.mapperWorkers; j++) {
                 File tmpDir = new File(fileConfiguration.tmpprefix + "-" + j);
                 File tmpFile = new File(tmpDir, "map-out-partition-" + i + ".txt");
@@ -142,7 +145,10 @@ public class MWMapReduce {
     }
 
     private void combineOutput(File file) throws IOException {
-        MWMergingReader mergingReader = new MWMergingReader(KEY_COMPARATOR);
+        Comparator<String> keyComparator = app.job.getComparator();
+        Comparator<MWPair<String, String>> pairComparator = (a, b) -> keyComparator.compare(a.getKey(), b.getKey());
+        MWMergingReader mergingReader = new MWMergingReader(pairComparator);
+
         for (int i = 0; i < workerConfiguration.reducerWorkers; i++) {
             File partFile = new File(fileConfiguration.outprefix + "-" + i + ".txt");
 
@@ -153,7 +159,7 @@ public class MWMapReduce {
         ArrayList<MWPair<String, String>> mergedList = mergingReader.getMergedList();
 
         File dir = file.getParentFile();
-        if (!dir.exists() && !dir.mkdirs()) {
+        if (dir != null && !dir.exists() && !dir.mkdirs()) {
             throw new IOException("Cannot create output directory: " + dir);
         }
         file.createNewFile();
@@ -171,10 +177,9 @@ public class MWMapReduce {
 
     public static void main(String[] args) {
         if (args.length != 4) {
-            System.err.println("usage mw-map-reduce <app> <infile> <tmpprefix> <outprefix>");
+            System.err.println("usage <app> <infile> <tmpprefix> <outprefix>");
             System.exit(1);
         }
-
         String appName = args[0];
         String infile = args[1];
         String tmpprefix = args[2];
