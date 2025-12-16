@@ -4,6 +4,7 @@ import mw.mapreduce.core.MWJob;
 import mw.mapreduce.core.MWMapper;
 import mw.mapreduce.core.MWReducer;
 import mw.mapreduce.reader.MWKeyValueReader;
+import mw.mapreduce.reader.MWLineReader;
 import mw.mapreduce.reader.MWReader;
 import mw.mapreduce.util.MWPair;
 
@@ -13,15 +14,12 @@ public class MWFriendSortJob extends MWJob {
     public MWMapper createMapper() {
         return new MWFriendSortMapper();
     }
-
+    @Override
     public MWReducer createReducer() {
         return new MWFriendSortReducer();
     }
 
-    public MWReader<MWPair<String, String>> createInputReader() throws Exception {
-        return new MWKeyValueReader("");
-    }
-
+    @Override
     public java.util.Comparator<String> getComparator() {
         return new MWFriendSortComparator();
     }
