@@ -31,7 +31,8 @@ public class MWReduceContext implements MWContext<Iterable<String>> {
     @Override
     public void outputComplete() throws IOException {
         File dir = outputFile.getParentFile();
-        if (!dir.exists() && !dir.mkdirs()) {
+        System.out.println(outputFile);
+        if (dir != null && !dir.exists() && !dir.mkdirs()) {
             throw new IOException("Cannot create output directory: " + dir);
         }
         outputFile.createNewFile();
