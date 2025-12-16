@@ -65,11 +65,6 @@ public class MWFriendExtractReader implements MWReader<MWPair<String, String>> {
             }
 
             content.append(line).append("\n");
-
-            // Optimierung: Wenn wir über das Split-Ende hinaus sind UND das Profil zu Ende ist
-            // (hier erkennen wir das Ende erst durch den Start des nächsten), stoppen wir.
-            // Der MWSplitTextFileInput hört von selbst auf 'readLine' null zurückzugeben,
-            // wenn das Limit erreicht ist. 'forceReadLine' ignoriert das Limit.
         }
 
         // Wir geben den gesamten HTML-Inhalt als Value zurück. Key ist hier egal (null).
