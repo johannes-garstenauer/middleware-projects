@@ -5,12 +5,14 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.Future;
 
 import mw.mapreduce.core.MWJob;
 import mw.mapreduce.core.MWMapContext;
@@ -32,15 +34,6 @@ public class MWMapReduce {
     private record MWWorkerConfiguration(int mapperWorkers, int reducerWorkers) {}
     private record MWFileConfiguration(String infile, String tmpprefix, String outprefix) {}
 
-    private class KeyComparator implements Comparator<MWPair<String, String>> {
-        @Override
-        public int compare(MWPair<String, String> arg0, MWPair<String, String> arg1) {
-            return arg0.getKey().compareTo(arg1.getKey());
-        }
-    }
-    private final KeyComparator KEY_COMPARATOR = new KeyComparator();
-
-
     static final MWApp APPS[] = {
         new MWApp("default", new MWJob()),
         new MWApp("friend-count", new MWFriendCountJob()),
@@ -52,6 +45,7 @@ public class MWMapReduce {
     private MWFileConfiguration fileConfiguration;
     private MWWorkerConfiguration workerConfiguration;
     private ExecutorService executorService = null;
+    private ArrayList<Future<?>> pendingTasks = new ArrayList<>();
 
     private MWMapReduce(MWApp app, MWFileConfiguration fileConfiguration, MWWorkerConfiguration workerConfiguration) {
         this.app = app;
@@ -59,15 +53,27 @@ public class MWMapReduce {
         this.workerConfiguration = workerConfiguration;
     }
 
+    private void startExecutorService() {
+        int maxWorkers = Math.max(workerConfiguration.mapperWorkers, workerConfiguration.reducerWorkers);
+
+        // either use the maximum amount of workers (determined by mappers/reducers) or the number of available processors
+        int threads = Runtime.getRuntime().availableProcessors();
+        threads = Math.min(threads, maxWorkers);
+
+        executorService = Executors.newFixedThreadPool(threads);
+    }
+
     private void startMap() throws Exception {
-        if (executorService != null) {
-            // previous task not finished
+        if (executorService == null) {
+            // executor service not created yet
             throw new IllegalStateException();
         }
-        System.out.println("Starting map tasks...");
+        if (!pendingTasks.isEmpty()) {
+            // previous tasks not finished yet
+            throw new IllegalStateException();
+        }
 
-        int threads = Math.min(Runtime.getRuntime().availableProcessors(), workerConfiguration.mapperWorkers);
-        executorService = Executors.newFixedThreadPool(threads);
+        System.out.println("Starting map tasks...");
 
         long infileLength = new File(fileConfiguration.infile).length();
     
@@ -87,20 +93,21 @@ public class MWMapReduce {
             MWMapper mapper = app.job.createMapper();
             mapper.setContext(mapContext);
 
-            executorService.execute(mapper);
+            pendingTasks.add(executorService.submit(new FileHashingMiddleware(mapper, tmpDir)));
         }
-        executorService.close();
     }
 
     private void startReduce() throws IOException {
-        if (executorService != null) {
-            // previous task not finished
+        if (executorService == null) {
+            // executor service not created yet
             throw new IllegalStateException();
         }
-        System.out.println("Starting reduce tasks...");
+        if (!pendingTasks.isEmpty()) {
+            // previous tasks not finished yet
+            throw new IllegalStateException();
+        }
 
-        int threads = Math.min(Runtime.getRuntime().availableProcessors(), workerConfiguration.reducerWorkers);
-        this.executorService = Executors.newFixedThreadPool(threads);
+        System.out.println("Starting reduce tasks...");
 
         for (int i = 0; i < workerConfiguration.reducerWorkers; i++) {
             Comparator<String> keyComparator = app.job.getComparator();
@@ -125,23 +132,38 @@ public class MWMapReduce {
 
             MWReducer reducer = app.job.createReducer();
             reducer.setContext(reduceContext);
-        
-            executorService.execute(reducer);
+
+            pendingTasks.add(executorService.submit(new FileHashingMiddleware(reducer, outputFile)));
         }
-        executorService.close();
     }
 
     private void awaitTermination() {
-        // generic way to await termination of all scheduled tasks
-        while (!executorService.isTerminated()) {
-            try {
-                if (executorService.awaitTermination(1, TimeUnit.HOURS)) {
-                    break;
+        for (Future<?> future : pendingTasks) {
+            while(true) {
+                try {
+                    future.get();
+                } catch(InterruptedException e) {
+                    // this thread was interrupted
+                    // retry to await this future
+                    continue;
+                } catch (ExecutionException e) {
+                    System.out.println("Exception was thrown during executing task: " + e.getMessage());
+                    e.printStackTrace();
                 }
-            } catch (InterruptedException e) {}
+
+                // task finished
+                break;
+            }
         }
-        executorService = null;
+        pendingTasks.clear();
         System.out.println("All tasks are finished now.");
+    }
+
+    private void closeExecutorService() {
+        // no tasks should be running by now
+        executorService.close();
+        executorService.shutdownNow();
+        executorService = null;
     }
 
     private void combineOutput(File file) throws IOException {
@@ -203,17 +225,28 @@ public class MWMapReduce {
 
         File targetFile = new File(fileConfiguration.outprefix + "-combined.txt");
 
+        mapReduce.startExecutorService();
+
         try {
             mapReduce.startMap();
             mapReduce.awaitTermination();
             mapReduce.startReduce();
             mapReduce.awaitTermination();
+            mapReduce.closeExecutorService();
             mapReduce.combineOutput(targetFile);
         } catch (Exception e) {
             System.err.println("Exception occurred during map reduce: " + e.getMessage());
             e.printStackTrace();
             System.exit(1);
         }
+
+        String hash;
+        try {
+            hash = FileHasher.hashFile(targetFile);
+        } catch (NoSuchAlgorithmException e) {
+            hash = "[MD5 not found]";
+        }
+        System.out.println("> Hash for \"" + targetFile.getAbsolutePath() + "\": " + hash);
 
         System.out.println("Finished map-reduce.");
         System.out.println("Saved combined results to: " + targetFile.getAbsolutePath());
