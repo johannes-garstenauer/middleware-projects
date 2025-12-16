@@ -12,20 +12,15 @@ public class MWFriendCountReducer extends MWReducer {
 
         for (String val : values) {
             if (val.startsWith("NAME:")) {
-                // Wir haben den Klarnamen gefunden
+                // Klarname
                 realName = val.substring(5); // "NAME:" abschneiden
             } else if (val.equals("COUNT")) {
-                // Ein Freund
+                // Freund
                 friendCount++;
             }
         }
 
-        // Wir geben nur was aus, wenn wir einen Namen haben (oder sollen wir IDs ausgeben, wenn kein Name da ist?
-        // Aufgabe: "Format <Name>\t<#Freunde>". Also brauchen wir zwingend den Namen.)
         if (realName != null) {
-            // Format: Name \t Anzahl
-            // Da context.write(k, v) einen Tab dazwischen macht, nutzen wir:
-            // Key = Name, Value = String.valueOf(friendCount)
             context.write(realName, String.valueOf(friendCount));
         }
     }
