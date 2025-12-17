@@ -28,7 +28,7 @@ public class MWKeyValueReader implements MWReader<MWPair<String, String>> {
             }
             if (i >= len) {
                 String key = Integer.toString(lineNumber);
-                String value = line; // or "" if you prefer
+                String value = line;
                 return new MWPair<>(key, value);
             }
             int startKey = i;

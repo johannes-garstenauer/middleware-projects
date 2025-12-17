@@ -5,56 +5,79 @@ import mw.mapreduce.util.MWPair;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.PriorityQueue;
-
+import java.util.Iterator;
 
 
 public class MWMergingReader implements MWReader<MWPair<String, String>> {
-    //static class MWListComparator implements Comparator<ArrayList<MWPair<String, String>>> {
-    //    public int compare(ArrayList<MWPair<String, String>> l1, ArrayList<MWPair<String, String>> l2) {
-    //        return l1.getFirst().getKey().compareTo(l2.getFirst().getKey());
-    //    }
-    //}
 
-    private final PriorityQueue<ArrayList<MWPair<String, String>>> queue;
+    // Wrapper class to hold an iterator and its current element
+    private static class PartitionIterator {
+        private final Iterator<MWPair<String, String>> iterator;
+        private MWPair<String, String> current;
+
+        public PartitionIterator(ArrayList<MWPair<String, String>> pairs) {
+            this.iterator = pairs.iterator();
+            this.current = iterator.hasNext() ? iterator.next() : null;
+        }
+
+        public MWPair<String, String> getCurrent() {
+            return current;
+        }
+
+        public boolean advance() {
+            if (iterator.hasNext()) {
+                current = iterator.next();
+                return true;
+            }
+            return false;
+        }
+
+        public boolean hasElement() {
+            return current != null;
+        }
+    }
+
+    private final PriorityQueue<PartitionIterator> queue;
+
     public MWMergingReader(Comparator<? super MWPair<String, String>> pairComparator) {
-        // Comparator that lifts a pair-comparator to a "list of pairs" comparator
-        Comparator<ArrayList<MWPair<String, String>>> listComparator =
-                (l1, l2)
-                        -> pairComparator.compare(l1.getFirst(), l2.getFirst());
+        // Comparator that compares the current elements of partition iterators
+        Comparator<PartitionIterator> iteratorComparator =
+                (pi1, pi2) -> pairComparator.compare(pi1.getCurrent(), pi2.getCurrent());
 
-        this.queue = new PriorityQueue<>(listComparator);
+        this.queue = new PriorityQueue<>(iteratorComparator);
     }
 
     @Override
     public MWPair<String, String> read() {
-        if (queue.isEmpty()) {return null;}
-        ArrayList<MWPair<String, String>> pairs = queue.poll();
-        MWPair<String, String> head = pairs.removeFirst();
-        if (!pairs.isEmpty()) {
-            queue.add(pairs);
+        if (queue.isEmpty()) {
+            return null;
         }
-        return head;
+
+        PartitionIterator partitionIter = queue.poll();
+        MWPair<String, String> result = partitionIter.getCurrent();
+
+        // Advance to next element and re-add to queue if more elements exist
+        if (partitionIter.advance()) {
+            queue.add(partitionIter);
+        }
+
+        return result;
     }
 
-    public void addToQueue(ArrayList<MWPair<String, String>> pairs){
-        // list is assumed to be sorted
+    public void addToQueue(ArrayList<MWPair<String, String>> pairs) {
+        // List is assumed to be sorted
         if (pairs == null || pairs.isEmpty()) {
             return;
         }
-        queue.add(pairs);
+        queue.add(new PartitionIterator(pairs));
     }
 
     public ArrayList<MWPair<String, String>> getMergedList() {
         ArrayList<MWPair<String, String>> result = new ArrayList<>();
-        while (!queue.isEmpty()){
-            ArrayList<MWPair<String, String>> pairs = queue.poll();
-            result.add(pairs.getFirst());
-            pairs.removeFirst();
-            if (!pairs.isEmpty()) {
-                queue.add(pairs);
-            }
+        MWPair<String, String> pair;
+        while ((pair = read()) != null) {
+            result.add(pair);
         }
         return result;
     }
-
 }
