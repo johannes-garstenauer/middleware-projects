@@ -12,6 +12,7 @@ import java.util.concurrent.atomic.AtomicLong;
 public class MWZooKeeperServer {
 
 	private final MWZooKeeperImpl impl;
+    // consider hashing lol
 	private final AtomicLong nextZXID = new AtomicLong(1);
 	private ServerSocket serverSocket;
 	private volatile boolean running = false;

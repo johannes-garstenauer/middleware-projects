@@ -52,7 +52,7 @@ public class MWZooKeeperImpl {
 		txn.setOperation(request.getOperation());
 		txn.setPath(path);
 		byte[] reqData = request.getData();
-		txn.setData(reqData == null ? null : Arrays.copyOf(reqData, reqData.length));
+		txn.setData(reqData);
 		txn.setVersion(request.getVersion());
 		txn.setEphemeral(request.getEphemeral());
 
@@ -66,7 +66,7 @@ public class MWZooKeeperImpl {
 				return txn;
 			}
 			// create node in ZA
-			Node created = new Node(txn.getData() == null ? null : Arrays.copyOf(txn.getData(), txn.getData().length),
+			Node created = new Node(txn.getData(),
 				0, now, zxid, request.getEphemeral(), false);
 			created.zxid = zxid;
 			za.put(path, created);
@@ -95,7 +95,7 @@ public class MWZooKeeperImpl {
 				return txn;
 			}
 			int newVersion = eff.version + 1;
-			Node updated = new Node(txn.getData() == null ? null : Arrays.copyOf(txn.getData(), txn.getData().length),
+			Node updated = new Node(txn.getData(),
 				newVersion, now, zxid, eff.ephemeral, false);
 			updated.zxid = zxid;
 			za.put(path, updated);
@@ -124,7 +124,7 @@ public class MWZooKeeperImpl {
 		String path = txn.getPath();
 		switch (txn.getOperation()) {
 		case CREATE: {
-			Node n = new Node(txn.getData() == null ? null : Arrays.copyOf(txn.getData(), txn.getData().length),
+			Node n = new Node(txn.getData(),
 				0, System.currentTimeMillis(), zxid, txn.isEphemeral(), false);
 			n.zxid = zxid;
 			zb.put(path, n);
