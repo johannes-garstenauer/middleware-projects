@@ -51,6 +51,7 @@ public class MWZooKeeperImpl {
 		MWZooKeeperTxn txn = new MWZooKeeperTxn();
 		txn.setOperation(request.getOperation());
 		txn.setPath(path);
+        // this assumes that the request data is not mutable by the client after this point
 		byte[] reqData = request.getData();
 		txn.setData(reqData);
 		txn.setVersion(request.getVersion());
@@ -148,7 +149,7 @@ public class MWZooKeeperImpl {
 			if (existing == null) {
 				// follower may not have the node yet; create it to mirror leader
 				existing = new Node();
-				existing.data = txn.getData() == null ? null : Arrays.copyOf(txn.getData(), txn.getData().length);
+				existing.data = txn.getData();
 				existing.version = txn.getVersion();
 				existing.time = System.currentTimeMillis();
 				existing.zxid = zxid;
@@ -158,7 +159,7 @@ public class MWZooKeeperImpl {
 				cleanupZAForZxid(path, zxid);
 				return resp;
 			} else {
-				existing.data = txn.getData() == null ? null : Arrays.copyOf(txn.getData(), txn.getData().length);
+				existing.data = txn.getData();
 				existing.version = txn.getVersion();
 				existing.time = System.currentTimeMillis();
 				existing.zxid = zxid;

@@ -7,6 +7,9 @@ import java.io.ObjectOutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class MWZooKeeperServer {
@@ -17,6 +20,7 @@ public class MWZooKeeperServer {
 	private ServerSocket serverSocket;
 	private volatile boolean running = false;
 	private Thread acceptThread;
+	private ExecutorService workerPool;
 
 	public MWZooKeeperServer(MWZooKeeperImpl impl) {
 		this.impl = impl;
@@ -26,6 +30,12 @@ public class MWZooKeeperServer {
 		if (running) return;
 		serverSocket = new ServerSocket(port);
 		running = true;
+		ThreadFactory threadFactory = r -> {
+			Thread t = new Thread(r, "MWZooKeeper-Worker");
+			t.setDaemon(true);
+			return t;
+		};
+		workerPool = Executors.newCachedThreadPool(threadFactory);
 		acceptThread = new Thread(this::acceptLoop, "MWZooKeeper-AcceptThread");
 		acceptThread.setDaemon(true);
 		acceptThread.start();
@@ -37,15 +47,23 @@ public class MWZooKeeperServer {
 		if (acceptThread != null) {
 			try { acceptThread.join(1000); } catch (InterruptedException ignored) {}
 		}
+		if (workerPool != null) {
+			workerPool.shutdownNow();
+		}
 	}
 
 	private void acceptLoop() {
 		while (running) {
 			try {
 				Socket client = serverSocket.accept();
-				Thread worker = new Thread(() -> handleClient(client), "MWZooKeeper-Worker");
-				worker.setDaemon(true);
-				worker.start();
+				if (workerPool != null) {
+					workerPool.execute(() -> handleClient(client));
+				} else {
+					// Fallback to spawning a thread if pool was not initialized
+					Thread worker = new Thread(() -> handleClient(client), "MWZooKeeper-Worker-Fallback");
+					worker.setDaemon(true);
+					worker.start();
+				}
 			} catch (SocketException se) {
 				// Socket closed during shutdown
 				break;
@@ -61,6 +79,7 @@ public class MWZooKeeperServer {
 			ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
 			out.flush();
 			ObjectInputStream in = new ObjectInputStream(socket.getInputStream());
+			int responsesSinceReset = 0;
 
 			while (true) {
 				Object obj;
@@ -99,6 +118,10 @@ public class MWZooKeeperServer {
 				try {
 					out.writeObject(response);
 					out.flush();
+					// Periodically clear the stream's handle table to avoid growth on long-lived connections
+					if (++responsesSinceReset % 100 == 0) {
+						out.reset();
+					}
 				} catch (IOException ioe) {
 					// Broken pipe / client disconnected
 					break;
