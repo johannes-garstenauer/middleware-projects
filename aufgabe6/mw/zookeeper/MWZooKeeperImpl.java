@@ -62,7 +62,30 @@ public class MWZooKeeperImpl {
 
 		switch (request.getOperation()) {
 		case CREATE:
+			// extract the parent path
+			int lastSlashIndex = path.lastIndexOf("/");
+			String parentPath = lastSlashIndex == -1 ? null : path.substring(0, lastSlashIndex);
+
+			if (parentPath != null) {
+				// this node to be created is not on the root level and
+				// therefore should have some parents
+				// (we assume that the "root" always exist so you can create "/test" without creating "/" first)
+				Node parentNode = getEffectiveNode(parentPath);
+				if (parentNode == null) {
+					// Abort case 1: Parent does not exist
+					txn.setException(new MWZooKeeperException("Parent node does not exist!"));
+					return txn;
+				} else if (parentNode.ephemeral) {
+					// Abort case 2: Parent exists, but is a ephemeral node
+					// (ephemeral nodes have to be leave nodes)
+					txn.setException(new MWZooKeeperException("Cannot create subnode as the parent node (" +
+						parentPath +  ") is an ephemeral node!"));
+					return txn;
+				}
+			}
+
 			if (eff != null && !eff.deleted) {
+				// cannot create an already existing node
 				txn.setException(new MWZooKeeperException("Node already exists"));
 				return txn;
 			}
