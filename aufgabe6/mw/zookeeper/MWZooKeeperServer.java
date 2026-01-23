@@ -22,8 +22,10 @@ import org.apache.zookeeper.zab.Txn;
 import org.apache.zookeeper.zab.ZabCallback;
 import org.apache.zookeeper.zab.ZabStatus;
 
+// Determine requirements (interaction Client <-> IMPL <-> ZAB
 // Walk through code
-// Change SingleZab to MultiZab
+// Test Interaction on SingleZab
+// Change SingleZab to MultiZab and test on MultiZab
 // Pass entire exercise sheet+handout and see if all specifications (regarding zab and how it interfaces with IMPl are fulfilled)
 
 // TODO: refactor into separate Zab classes
@@ -39,13 +41,10 @@ public class MWZooKeeperServer implements ZabCallback {
 
 	private SingleZab zab;
 	private volatile ZabStatus currentStatus = ZabStatus.LOOKING; // On init leader still undetermined
-	private volatile String leaderAddress = null;
+	private volatile String leaderAddress = null; // TODO: unused
 
 	// For handling responses to clients after commit
 	private final ConcurrentHashMap<Long, PendingRequest> pendingRequests = new ConcurrentHashMap<>();
-
-	// Optional: artificial delay for testing stale reads // TODO RM?
-	private long applyDelayMs = 0;
 
 	// Helper class to track pending write requests awaiting commit
 	private static class PendingRequest {
@@ -79,15 +78,7 @@ public class MWZooKeeperServer implements ZabCallback {
 		this.zab = new SingleZab(zabProperties, this);
 	}
 
-	// TODO RM?
-	public MWZooKeeperServer(MWZooKeeperImpl impl, Properties zabProperties, long applyDelayMs) throws IOException {
-		this.impl = impl;
-		this.applyDelayMs = applyDelayMs;
-		this.zab = new SingleZab(zabProperties, this);
-	}
-
 	// ZabCallback interface implementation
-
 	@Override
 	public void deliverRequest(Serializable request) {
 		// Called concurrently on followers when they receive a write request
@@ -112,14 +103,7 @@ public class MWZooKeeperServer implements ZabCallback {
 	@Override
 	public void deliverTxn(Serializable txn, long zxid) {
 		// Called when a transaction has been committed by majority
-		// Apply to local state machine // TODO RM?
-		if (applyDelayMs > 0) {
-			try {
-				Thread.sleep(applyDelayMs);
-			} catch (InterruptedException e) {
-				Thread.currentThread().interrupt();
-			}
-		}
+		// Apply to local state machine
 
 		// Deserialize the transaction from Txn's byte[] data field
 		try {
@@ -293,7 +277,6 @@ public class MWZooKeeperServer implements ZabCallback {
 		}
 	}
 
-	// TODO: combine into processWriteRequest?
 	private MWZooKeeperResponse handleWriteRequestWithZab(MWZooKeeperRequest request) {
 		if (currentStatus == ZabStatus.LEADING) {
 			// Leader: process directly
@@ -386,14 +369,6 @@ public class MWZooKeeperServer implements ZabCallback {
 			// Replicated mode with Zab
 			String myid = args[1];
 			String peersStr = args[2];
-			long delayMs = 0;
-
-			// Parse optional delay parameter
-			for (int i = 3; i < args.length; i++) {
-				if (args[i].startsWith("--delay-apply-ms=")) {
-					delayMs = Long.parseLong(args[i].substring("--delay-apply-ms=".length()));
-				}
-			}
 
 			// Build Zab properties
 			Properties zabProperties = new Properties();
@@ -404,13 +379,8 @@ public class MWZooKeeperServer implements ZabCallback {
 				zabProperties.setProperty("peer" + (i + 1), peers[i]);
 			}
 
-			if (delayMs > 0) {
-				server = new MWZooKeeperServer(impl, zabProperties, delayMs);
-				System.out.println("Starting MWZooKeeperServer (replicated mode) on port " + port + " with ID " + myid + " and apply delay " + delayMs + "ms");
-			} else {
-				server = new MWZooKeeperServer(impl, zabProperties);
-				System.out.println("Starting MWZooKeeperServer (replicated mode) on port " + port + " with ID " + myid);
-			}
+			server = new MWZooKeeperServer(impl, zabProperties);
+			System.out.println("Starting MWZooKeeperServer (replicated mode) on port " + port + " with ID " + myid);
 			System.out.println("Peers: " + peersStr);
 		}
 
