@@ -197,7 +197,7 @@ public class MWZooKeeperServer implements ZabCallback {
 		while (running) {
 			try {
 				Socket client = serverSocket.accept();
-                logger.debug("Accepted new client connection from {}", client.getRemoteSocketAddress()
+                logger.debug("Accepted new client connection from {}", client.getRemoteSocketAddress());
 				if (workerPool != null) {
 					workerPool.execute(() -> handleClient(client));
 				} else {
