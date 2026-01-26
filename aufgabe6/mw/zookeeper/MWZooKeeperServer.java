@@ -5,7 +5,6 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
-import java.io.ByteArrayOutputStream;
 import java.io.ByteArrayInputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -18,16 +17,9 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.zookeeper.zab.SingleZab;
-import org.apache.zookeeper.zab.Txn;
+import org.apache.zookeeper.zab.MultiZab;
 import org.apache.zookeeper.zab.ZabCallback;
 import org.apache.zookeeper.zab.ZabStatus;
-
-// Determine requirements (interaction Client <-> IMPL <-> ZAB
-// Walk through code
-// Test Interaction on SingleZab
-// Change SingleZab to MultiZab and test on MultiZab
-// Pass entire exercise sheet+handout and see if all specifications (regarding zab and how it interfaces with IMPl are fulfilled)
 
 // TODO: refactor into separate Zab classes
 // TODO: remove the whole delay test nonsense
@@ -43,19 +35,11 @@ public class MWZooKeeperServer implements ZabCallback {
 	private Thread acceptThread;
 	private ExecutorService workerPool;
 
-	private SingleZab zab;
+	private final MultiZab zab;
 	private volatile ZabStatus currentStatus = ZabStatus.LOOKING; // On init leader still undetermined
 
 
-	// Helper methods to serialize/deserialize objects for Zab Txn
-	private static byte[] serializeToBytes(Serializable obj) throws IOException {
-		ByteArrayOutputStream baos = new ByteArrayOutputStream();
-		ObjectOutputStream oos = new ObjectOutputStream(baos);
-		oos.writeObject(obj);
-		oos.flush();
-		return baos.toByteArray();
-	}
-
+	// Helper method to deserialize objects from Zab Txn
 	private static Serializable deserializeFromBytes(byte[] data) throws IOException, ClassNotFoundException {
 		ByteArrayInputStream bais = new ByteArrayInputStream(data);
 		ObjectInputStream ois = new ObjectInputStream(bais);
@@ -65,7 +49,7 @@ public class MWZooKeeperServer implements ZabCallback {
 
 	public MWZooKeeperServer(MWZooKeeperImpl impl, Properties zabProperties) throws IOException {
 		this.impl = impl;
-		this.zab = new SingleZab(zabProperties, this);
+		this.zab = new MultiZab(zabProperties, this);
 	}
 
 	// ZabCallback interface implementation
@@ -80,14 +64,7 @@ public class MWZooKeeperServer implements ZabCallback {
 		} else if (currentStatus == ZabStatus.FOLLOWING) {
 			// Follower forwards to leader via Zab
 			logger.debug("Follower forwarding request to leader: {}", request);
-			try {
-				// Serialize request to byte array for Txn
-				byte[] requestData = serializeToBytes(request);
-				Txn zabTxn = new Txn(0, 0, 0, System.currentTimeMillis(), requestData, false);
-				zab.deliver(zabTxn);
-			} catch (IOException e) {
-				logger.error("Error forwarding request to leader", e);
-			}
+			zab.forwardRequest(request);
 		}
 		// If LOOKING, drop request or queue it
 	}
@@ -98,28 +75,15 @@ public class MWZooKeeperServer implements ZabCallback {
 		// Apply to local state machine
 		logger.debug("Delivering transaction with zxid: {}", zxid);
 
-		// Deserialize the transaction from Txn's byte[] data field
-		try {
-			if (!(txn instanceof Txn)) {
-				logger.error("Received non-Txn object: {}", txn);
-				return;
-			}
-
-			Txn zabTxn = (Txn) txn;
-			byte[] data = zabTxn.getData();
-			Serializable payload = deserializeFromBytes(data);
-
-			if (!(payload instanceof MWZooKeeperTxn)) {
-				logger.error("Received non-MWZooKeeperTxn payload: {}", payload);
-				return;
-			}
-
-			MWZooKeeperTxn zkTxn = (MWZooKeeperTxn) payload;
-			impl.applyTxn(zkTxn, zxid);
-			logger.debug("Transaction {} applied successfully", zxid);
-		} catch (IOException | ClassNotFoundException e) {
-			logger.error("Error deserializing transaction", e);
+		// Zab passes back the same object we gave to proposeTxn()
+		if (!(txn instanceof MWZooKeeperTxn)) {
+			logger.error("Received non-MWZooKeeperTxn object: {}", txn);
+			return;
 		}
+
+		MWZooKeeperTxn zkTxn = (MWZooKeeperTxn) txn;
+		impl.applyTxn(zkTxn, zxid);
+		logger.debug("Transaction {} applied successfully", zxid);
 	}
 
 	@Override
@@ -146,18 +110,12 @@ public class MWZooKeeperServer implements ZabCallback {
 		long zxid = nextZXID.getAndIncrement();
 		logger.debug("Processing write request as leader with zxid: {}", zxid);
 
-		// Create transaction
+		// Create transaction and propose via Zab
 		MWZooKeeperTxn txn = impl.processWriteRequest(zkRequest, zxid);
 
-		// Serialize to byte array and wrap in Zab's Txn, then propose via Zab
-		try {
-			byte[] txnData = serializeToBytes(txn);
-			Txn zabTxn = new Txn(zxid, 0, 0, System.currentTimeMillis(), txnData, false);
-			zab.deliver(zabTxn);
-			logger.debug("Transaction with zxid {} proposed to Zab", zxid);
-		} catch (IOException e) {
-			logger.error("Error proposing transaction with zxid {}", zxid, e);
-		}
+		// Propose transaction directly - Zab will handle wrapping it internally
+		zab.proposeTxn(txn, zxid);
+		logger.debug("Transaction with zxid {} proposed to Zab", zxid);
 	}
 
 	public void start(int port) throws IOException {
@@ -165,6 +123,13 @@ public class MWZooKeeperServer implements ZabCallback {
 			logger.warn("Server already running on port {}", serverSocket.getLocalPort());
 			return;
 		}
+
+		// Start Zab protocol first (this will start leader election)
+		logger.info("Starting Zab protocol...");
+		zab.startup();
+		logger.info("Zab protocol started, leader election in progress");
+
+		// Then start the client-facing server
 		serverSocket = new ServerSocket(port);
 		running = true;
 		ThreadFactory threadFactory = r -> {
@@ -188,6 +153,10 @@ public class MWZooKeeperServer implements ZabCallback {
 		}
 		if (workerPool != null) {
 			workerPool.shutdownNow();
+		}
+		if (zab != null) {
+			logger.info("Shutting down Zab protocol...");
+			zab.shutdown();
 		}
 		logger.info("Server stopped");
 	}
@@ -285,6 +254,10 @@ public class MWZooKeeperServer implements ZabCallback {
 			try { out.close(); } catch (IOException ignored) {}
 			socket.close();
 			logger.debug("Client handler finished for {}", socket.getRemoteSocketAddress());
+		} catch (SocketException se) {
+			// Expected when client disconnects
+			logger.debug("Client disconnected: {}", se.getMessage());
+			try { socket.close(); } catch (IOException ignored) {}
 		} catch (IOException | ClassNotFoundException e) {
 			logger.error("Client handler error", e);
 			try { socket.close(); } catch (IOException ignored) {}
@@ -300,42 +273,44 @@ public class MWZooKeeperServer implements ZabCallback {
 			// Create transaction and propose via Zab
 			MWZooKeeperTxn txn = impl.processWriteRequest(request, zxid);
 
-			try {
-				// Serialize to byte array and wrap in Zab's Txn
-				byte[] txnData = serializeToBytes(txn);
-				Txn zabTxn = new Txn(zxid, 0, 0, System.currentTimeMillis(), txnData, false);
-				zab.deliver(zabTxn);
-				logger.debug("Transaction with zxid {} proposed", zxid);
-
-				// Return success immediately (fire-and-forget)
-				MWZooKeeperResponse resp = new MWZooKeeperResponse();
-				return resp;
-			} catch (IOException e) {
-				logger.error("Failed to propose transaction with zxid {}", zxid, e);
+			// Check if transaction has an error
+			if (txn.getException() != null) {
 				MWZooKeeperResponse errorResp = new MWZooKeeperResponse();
-				errorResp.setException(new MWZooKeeperException("Failed to propose: " + e));
+				errorResp.setException(txn.getException());
 				return errorResp;
 			}
+
+			// Propose transaction directly - Zab will handle wrapping it internally
+			zab.proposeTxn(txn, zxid);
+			logger.debug("Transaction with zxid {} proposed", zxid);
+
+			// Return success with path and stat immediately (fire-and-forget)
+			MWZooKeeperResponse resp = new MWZooKeeperResponse();
+			resp.setPath(request.getPath());
+			// For SET_DATA, include the new version in the response
+			if (request.getOperation() == MWZooKeeperOperation.SET_DATA) {
+				MWZooKeeperStat stat = new MWZooKeeperStat(txn.getVersion(), System.currentTimeMillis(), zxid);
+				resp.setStat(stat);
+			}
+			return resp;
 
 		} else if (currentStatus == ZabStatus.FOLLOWING) {
 			// Follower: forward to leader via Zab and return immediately
 			logger.debug("Forwarding write request to leader as follower");
-			try {
-				// Serialize request to byte array and wrap in Zab's Txn
-				byte[] requestData = serializeToBytes(request);
-				Txn zabTxn = new Txn(0, 0, 0, System.currentTimeMillis(), requestData, false);
-				zab.deliver(zabTxn);
-				logger.debug("Request forwarded to leader");
+			zab.forwardRequest(request);
+			logger.debug("Request forwarded to leader");
 
-				// Return success immediately (fire-and-forget)
-				MWZooKeeperResponse resp = new MWZooKeeperResponse();
-				return resp;
-			} catch (IOException e) {
-				logger.error("Failed to forward request to leader", e);
-				MWZooKeeperResponse errorResp = new MWZooKeeperResponse();
-				errorResp.setException(new MWZooKeeperException("Failed to forward to leader: " + e));
-				return errorResp;
+			// Return success with path immediately (fire-and-forget)
+			// Note: We don't know the zxid or final version since leader will assign it
+			MWZooKeeperResponse resp = new MWZooKeeperResponse();
+			resp.setPath(request.getPath());
+			// For SET_DATA on follower, we can't predict the exact stat
+			// Return a dummy stat - this is a limitation of fire-and-forget
+			if (request.getOperation() == MWZooKeeperOperation.SET_DATA) {
+				MWZooKeeperStat stat = new MWZooKeeperStat(0, System.currentTimeMillis(), 0);
+				resp.setStat(stat);
 			}
+			return resp;
 
 		} else {
 			// LOOKING state - cannot process writes during election
