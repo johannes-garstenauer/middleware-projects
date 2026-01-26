@@ -11,11 +11,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
 import java.util.Properties;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.Condition;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -46,16 +42,6 @@ public class MWZooKeeperServer implements ZabCallback {
 	private SingleZab zab;
 	private volatile ZabStatus currentStatus = ZabStatus.LOOKING; // On init leader still undetermined
 
-	// For handling responses to clients after commit
-	private final ConcurrentHashMap<Long, PendingRequest> pendingRequests = new ConcurrentHashMap<>();
-
-	// Helper class to track pending write requests awaiting commit
-	private static class PendingRequest {
-		final Lock lock = new ReentrantLock();
-		final Condition commitReceived = lock.newCondition();
-		volatile MWZooKeeperResponse response = null;
-		volatile boolean committed = false;
-	}
 
 	// Helper methods to serialize/deserialize objects for Zab Txn
 	private static byte[] serializeToBytes(Serializable obj) throws IOException {
@@ -128,22 +114,8 @@ public class MWZooKeeperServer implements ZabCallback {
 			}
 
 			MWZooKeeperTxn zkTxn = (MWZooKeeperTxn) payload;
-			MWZooKeeperResponse response = impl.applyTxn(zkTxn, zxid);
+			impl.applyTxn(zkTxn, zxid);
 			logger.debug("Transaction {} applied successfully", zxid);
-
-			// If this server is leader and originated this request, notify waiting client
-			PendingRequest pending = pendingRequests.remove(zxid);
-			if (pending != null) {
-				pending.lock.lock();
-				try {
-					pending.response = response;
-					pending.committed = true;
-					pending.commitReceived.signalAll();
-					logger.debug("Notified waiting client for zxid: {}", zxid);
-				} finally {
-					pending.lock.unlock();
-				}
-			}
 		} catch (IOException | ClassNotFoundException e) {
 			logger.error("Error deserializing transaction", e);
 		}
@@ -309,13 +281,9 @@ public class MWZooKeeperServer implements ZabCallback {
 
 	private MWZooKeeperResponse handleWriteRequestWithZab(MWZooKeeperRequest request) {
 		if (currentStatus == ZabStatus.LEADING) {
-			// Leader: process directly
+			// Leader: process directly and return immediately
 			logger.debug("Handling write request as leader");
 			long zxid = nextZXID.getAndIncrement();
-
-			// Register pending request to get response after commit
-			PendingRequest pending = new PendingRequest();
-			pendingRequests.put(zxid, pending);
 
 			// Create transaction and propose via Zab
 			MWZooKeeperTxn txn = impl.processWriteRequest(request, zxid);
@@ -326,37 +294,19 @@ public class MWZooKeeperServer implements ZabCallback {
 				Txn zabTxn = new Txn(zxid, 0, 0, System.currentTimeMillis(), txnData, false);
 				zab.deliver(zabTxn);
 				logger.debug("Transaction with zxid {} proposed", zxid);
+
+				// Return success immediately (fire-and-forget)
+				MWZooKeeperResponse resp = new MWZooKeeperResponse();
+				return resp;
 			} catch (IOException e) {
 				logger.error("Failed to propose transaction with zxid {}", zxid, e);
-				pendingRequests.remove(zxid);
 				MWZooKeeperResponse errorResp = new MWZooKeeperResponse();
 				errorResp.setException(new MWZooKeeperException("Failed to propose: " + e));
 				return errorResp;
 			}
 
-			// Wait for commit
-			pending.lock.lock();
-			try {
-				logger.debug("Waiting for commit of zxid {}", zxid);
-				while (!pending.committed) {
-					try {
-						pending.commitReceived.await();
-					} catch (InterruptedException e) {
-						Thread.currentThread().interrupt();
-						logger.warn("Interrupted while waiting for commit of zxid {}", zxid);
-						MWZooKeeperResponse errorResp = new MWZooKeeperResponse();
-						errorResp.setException(new MWZooKeeperException("Interrupted waiting for commit"));
-						return errorResp;
-					}
-				}
-				logger.debug("Commit received for zxid {}", zxid);
-				return pending.response;
-			} finally {
-				pending.lock.unlock();
-			}
-
 		} else if (currentStatus == ZabStatus.FOLLOWING) {
-			// Follower: forward to leader via Zab
+			// Follower: forward to leader via Zab and return immediately
 			logger.debug("Forwarding write request to leader as follower");
 			try {
 				// Serialize request to byte array and wrap in Zab's Txn
@@ -364,6 +314,10 @@ public class MWZooKeeperServer implements ZabCallback {
 				Txn zabTxn = new Txn(0, 0, 0, System.currentTimeMillis(), requestData, false);
 				zab.deliver(zabTxn);
 				logger.debug("Request forwarded to leader");
+
+				// Return success immediately (fire-and-forget)
+				MWZooKeeperResponse resp = new MWZooKeeperResponse();
+				return resp;
 			} catch (IOException e) {
 				logger.error("Failed to forward request to leader", e);
 				MWZooKeeperResponse errorResp = new MWZooKeeperResponse();
@@ -371,16 +325,8 @@ public class MWZooKeeperServer implements ZabCallback {
 				return errorResp;
 			}
 
-			// TODO: hate this
-			// For simplicity in this implementation, return an acknowledgment
-			// In a real system, we'd need a more sophisticated request tracking mechanism
-			logger.debug("Returning forwarding acknowledgment");
-			MWZooKeeperResponse resp = new MWZooKeeperResponse();
-			resp.setException(new MWZooKeeperException("Request forwarded to leader - reconnect to get result"));
-			return resp;
-
 		} else {
-			// LOOKING state
+			// LOOKING state - cannot process writes during election
 			logger.warn("Received write request while in LOOKING state");
 			MWZooKeeperResponse resp = new MWZooKeeperResponse();
 			resp.setException(new MWZooKeeperException("Cluster is in election - try again later"));
