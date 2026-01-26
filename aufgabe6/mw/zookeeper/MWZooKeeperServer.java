@@ -30,6 +30,7 @@ public class MWZooKeeperServer implements ZabCallback {
 	private final MWZooKeeperImpl impl;
     // consider hashing lol
 	private final AtomicLong nextZXID = new AtomicLong(1);
+	private final MWZooKeeperIdGenerator clientIdGenerator;
 	private ServerSocket serverSocket;
 	private volatile boolean running = false;
 	private Thread acceptThread;
@@ -50,6 +51,7 @@ public class MWZooKeeperServer implements ZabCallback {
 	public MWZooKeeperServer(MWZooKeeperImpl impl, Properties zabProperties) throws IOException {
 		this.impl = impl;
 		this.zab = new MultiZab(zabProperties, this);
+		this.clientIdGenerator = new MWZooKeeperIdGenerator(zabProperties.getProperty("myid"));
 	}
 
 	// ZabCallback interface implementation
@@ -188,6 +190,9 @@ public class MWZooKeeperServer implements ZabCallback {
 
 	private void handleClient(Socket socket) {
 		logger.debug("Handling client from {}", socket.getRemoteSocketAddress());
+		String clientId = clientIdGenerator.nextUniqueId();
+		boolean ephemeralNodesCreated = false;
+
 		try {
 			socket.setTcpNoDelay(true);
 			ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
@@ -210,6 +215,7 @@ public class MWZooKeeperServer implements ZabCallback {
 					continue;
 				}
 				MWZooKeeperRequest request = (MWZooKeeperRequest) obj;
+				request.setClientId(clientId);
 				logger.debug("Received request: {} from {}", request.getOperation(), socket.getRemoteSocketAddress());
 				MWZooKeeperResponse response;
 				try {
@@ -220,7 +226,15 @@ public class MWZooKeeperServer implements ZabCallback {
 						response = impl.processReadRequest(request);
 						break;
 					case CREATE:
+						if (request.getEphemeral()) {
+							// Note: We do not know yet for sure if this node will be created successfully
+							// therefore, we tread this following variable as
+							// "there might be ephemeral nodes for this client"
+
+							ephemeralNodesCreated = true;
+						}
 					case DELETE:
+					case CLEANUP:
 					case SET_DATA:
 						logger.debug("Processing {} request for path: {}", request.getOperation(), request.getPath());
 						response = handleWriteRequestWithZab(request);
@@ -261,6 +275,21 @@ public class MWZooKeeperServer implements ZabCallback {
 		} catch (IOException | ClassNotFoundException e) {
 			logger.error("Client handler error", e);
 			try { socket.close(); } catch (IOException ignored) {}
+		} finally {
+			// client disconnected
+			if (ephemeralNodesCreated) {
+				// there might exist ephemeral nodes for this client
+				// send a cleanup request
+				MWZooKeeperRequest request = new MWZooKeeperRequest(MWZooKeeperOperation.CLEANUP, "");
+				request.setClientId(clientId);
+
+				try {
+					MWZooKeeperResponse response = handleWriteRequestWithZab(request);
+					response.getPath();
+				} catch(Exception e) {
+					System.err.println("Warning: Could not clean up ephemeral nodes after client disconnect: " + e.getMessage());
+				}
+			}
 		}
 	}
 

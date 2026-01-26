@@ -2,7 +2,10 @@ package mw.zookeeper;
 
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.stream.Collectors;
 
 public class MWZooKeeperImpl {
 
@@ -16,16 +19,18 @@ public class MWZooKeeperImpl {
 		long zxid;
 		boolean ephemeral;
 		boolean deleted;
+		String clientId;
 
 		Node() {}
 
-		Node(byte[] data, int version, long time, long zxid, boolean ephemeral, boolean deleted) {
+		Node(byte[] data, int version, long time, long zxid, boolean ephemeral, boolean deleted, String clientId) {
 			this.data = data;
 			this.version = version;
 			this.time = time;
 			this.zxid = zxid;
 			this.ephemeral = ephemeral;
 			this.deleted = deleted;
+			this.clientId = clientId;
 		}
 	}
 
@@ -60,12 +65,13 @@ public class MWZooKeeperImpl {
 		txn.setData(reqData);
 		txn.setVersion(request.getVersion());
 		txn.setEphemeral(request.getEphemeral());
+		txn.setClientId(request.getClientId());
 
 		Node eff = getEffectiveNode(path);
 		long now = System.currentTimeMillis();
 
 		switch (request.getOperation()) {
-		case CREATE:
+		case CREATE: {
 			// extract the parent path
 			int lastSlashIndex = path.lastIndexOf("/");
 			String parentPath = lastSlashIndex == -1 ? null : path.substring(0, lastSlashIndex);
@@ -95,11 +101,12 @@ public class MWZooKeeperImpl {
 			}
 			// create node in ZA
 			Node created = new Node(txn.getData(),
-				0, now, zxid, request.getEphemeral(), false);
+				0, now, zxid, request.getEphemeral(), false, request.getClientId());
 			created.zxid = zxid;
 			za.put(path, created);
 			return txn;
-		case DELETE:
+		}
+		case DELETE: {
 			if (eff == null || eff.deleted) {
 				txn.setException(new MWZooKeeperException("Node does not exist"));
 				return txn;
@@ -108,12 +115,29 @@ public class MWZooKeeperImpl {
 				txn.setException(new MWZooKeeperException("Version mismatch"));
 				return txn;
 			}
-			Node del = new Node(null, eff.version, now, zxid, eff.ephemeral, true);
+			Node del = new Node(null, eff.version, now, zxid, eff.ephemeral, true, request.getClientId());
 			del.zxid = zxid;
 			za.put(path, del);
 			txn.setDelete(true);
 			return txn;
-		case SET_DATA:
+		}
+		case CLEANUP: {
+			// create del nodes for all nodes that were created by that client
+			List<Entry<String, Node>> targetNodes = zb.entrySet()
+				.stream()
+				.filter(entry -> entry.getValue().ephemeral && entry.getValue().clientId.equals(request.getClientId()))
+				.collect(Collectors.toList()); // collect as modifying the map while iterating might be undefined behavior
+
+			targetNodes.forEach(entry -> {
+				Node del = new Node(null, eff.version, now, zxid, eff.ephemeral, true, request.getClientId());
+				del.zxid = zxid;
+				za.put(entry.getKey(), del);
+			});
+
+			txn.setDelete(true);
+			return txn;
+		}
+		case SET_DATA: {
 			if (eff == null || eff.deleted) {
 				txn.setException(new MWZooKeeperException("Node does not exist"));
 				return txn;
@@ -124,14 +148,16 @@ public class MWZooKeeperImpl {
 			}
 			int newVersion = eff.version + 1;
 			Node updated = new Node(txn.getData(),
-				newVersion, now, zxid, eff.ephemeral, false);
+				newVersion, now, zxid, eff.ephemeral, false, request.getClientId());
 			updated.zxid = zxid;
 			za.put(path, updated);
 			txn.setVersion(newVersion);
 			return txn;
-		default:
+		}
+		default: {
 			txn.setException(new MWZooKeeperException("Unknown operation"));
-			return txn;
+			return txn;			
+		}
 		}
 	}
 
@@ -161,7 +187,7 @@ public class MWZooKeeperImpl {
 		switch (txn.getOperation()) {
 		case CREATE: {
 			Node n = new Node(txn.getData(),
-				0, System.currentTimeMillis(), zxid, txn.isEphemeral(), false);
+				0, System.currentTimeMillis(), zxid, txn.isEphemeral(), false, txn.getClientId());
 			n.zxid = zxid;
 			zb.put(path, n);
 			System.out.println("[applyTxn] Node created and added to zb. zb now contains " + zb.size() + " nodes");
@@ -177,6 +203,22 @@ public class MWZooKeeperImpl {
 			Node existing = zb.get(path);
 			if (existing != null) zb.remove(path);
 			resp.setPath(path);
+			// cleanup ZA
+			cleanupZAForZxid(path, zxid);
+			return resp;
+		}
+		case CLEANUP: {
+			// Remove from confirmed state if exists
+			List<String> pathsToRemove = zb.entrySet()
+				.stream()
+				.filter(entry -> entry.getValue().ephemeral && entry.getValue().clientId.equals(txn.getClientId()))
+				.map(entry -> entry.getKey())
+				.collect(Collectors.toList()); // collect as removing while iterating might be undefined behavior
+
+			for (String pathToRemove : pathsToRemove) {
+				zb.remove(pathToRemove);
+			}
+
 			// cleanup ZA
 			cleanupZAForZxid(path, zxid);
 			return resp;

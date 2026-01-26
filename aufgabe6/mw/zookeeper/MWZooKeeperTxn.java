@@ -12,6 +12,7 @@ public class MWZooKeeperTxn implements Serializable {
 	private int version; // version that will be set if txn is applied
 	private boolean ephemeral;
 	private boolean delete;
+	private String clientId;
 	private MWZooKeeperException exception; // non-null if this is an error transaction
 
 	public MWZooKeeperTxn() {}
@@ -21,6 +22,9 @@ public class MWZooKeeperTxn implements Serializable {
 
 	public String getPath() { return path; }
 	public void setPath(String path) { this.path = path; }
+
+	public String getClientId() { return clientId; }
+	public void setClientId(String clientId) { this.clientId = clientId; }
 
 	public byte[] getData() { return data; }
 	public void setData(byte[] data) { this.data = data; }

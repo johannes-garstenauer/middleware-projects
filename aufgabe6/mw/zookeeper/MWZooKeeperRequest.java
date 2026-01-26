@@ -13,6 +13,7 @@ public class MWZooKeeperRequest implements Serializable {
 	private int version;
 	private byte[] data;
 	private boolean ephemeral;
+	private String clientId;
 	
 	
 	public MWZooKeeperRequest(MWZooKeeperOperation operation, String path) {
@@ -20,9 +21,17 @@ public class MWZooKeeperRequest implements Serializable {
 		this.path = path;
 		this.version = -1;
 		this.data = null;
+		this.clientId = null;
 		this.ephemeral = false;
 	}
 
+	public void setClientId(String clientId) {
+		this.clientId = clientId;
+	}
+
+	public String getClientId() {
+		return clientId;
+	}
 
 	public MWZooKeeperOperation getOperation() {
 		return operation;
