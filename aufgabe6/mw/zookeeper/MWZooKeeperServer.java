@@ -58,9 +58,6 @@ public class MWZooKeeperServer implements ZabCallback {
 		return (Serializable) ois.readObject();
 	}
 
-	public MWZooKeeperServer(MWZooKeeperImpl impl) {
-		this.impl = impl;
-	}
 
 	public MWZooKeeperServer(MWZooKeeperImpl impl, Properties zabProperties) throws IOException {
 		this.impl = impl;
@@ -238,15 +235,7 @@ public class MWZooKeeperServer implements ZabCallback {
 					case DELETE:
 					case SET_DATA:
 						logger.debug("Processing {} request for path: {}", request.getOperation(), request.getPath());
-						// Write operations must go through Zab
-						if (zab == null) {
-							// Single-node mode (no replication)
-							long zxid = nextZXID.getAndIncrement();
-							MWZooKeeperTxn txn = impl.processWriteRequest(request, zxid);
-							response = impl.applyTxn(txn, zxid);
-						} else {
-							response = handleWriteRequestWithZab(request);
-						}
+						response = handleWriteRequestWithZab(request);
 						break;
 					default:
 						logger.warn("Unknown operation: {}", request.getOperation());
@@ -336,40 +325,31 @@ public class MWZooKeeperServer implements ZabCallback {
 
 
 	public static void main(String[] args) throws Exception {
-		if (args.length == 0) {
-			System.out.println("Usage: MWZooKeeperServer <port> [<myid> <peers> [--delay-apply-ms=<ms>]]");
-			System.out.println("  Single-node mode: MWZooKeeperServer <port>");
-			System.out.println("  Replicated mode: MWZooKeeperServer <port> <myid> <peer1,peer2,...> [--delay-apply-ms=<ms>]");
-			System.out.println("  Example peers format: localhost:2181,localhost:2182,localhost:2183");
+		if (args.length < 3) {
+			System.out.println("Usage: MWZooKeeperServer <port> <myid> <peer1,peer2,...>");
+			System.out.println("  Example single-node: MWZooKeeperServer 2181 1 localhost:2888:3888");
+			System.out.println("  Example multi-node:  MWZooKeeperServer 2181 1 localhost:2888:3888,localhost:2889:3889,localhost:2890:3890");
 			System.exit(1);
 		}
 
 		int port = Integer.parseInt(args[0]);
-		MWZooKeeperImpl impl = new MWZooKeeperImpl();
-		MWZooKeeperServer server;
+		String myid = args[1];
+		String peersStr = args[2];
 
-		if (args.length == 1) {
-			// Single-node mode (no replication)
-			server = new MWZooKeeperServer(impl);
-			logger.info("Starting MWZooKeeperServer (single-node mode) on port {}", port);
-		} else {
-			// Replicated mode with Zab
-			String myid = args[1];
-			String peersStr = args[2];
+		// Build Zab properties
+		Properties zabProperties = new Properties();
+		zabProperties.setProperty("myid", myid);
 
-			// Build Zab properties
-			Properties zabProperties = new Properties();
-			zabProperties.setProperty("myid", myid);
-
-			String[] peers = peersStr.split(",");
-			for (int i = 0; i < peers.length; i++) {
-				zabProperties.setProperty("peer" + (i + 1), peers[i]);
-			}
-
-			server = new MWZooKeeperServer(impl, zabProperties);
-			logger.info("Starting MWZooKeeperServer (replicated mode) on port {} with ID {}", port, myid);
-			logger.info("Peers: {}", peersStr);
+		String[] peers = peersStr.split(",");
+		for (int i = 0; i < peers.length; i++) {
+			zabProperties.setProperty("peer" + (i + 1), peers[i]);
 		}
+
+		MWZooKeeperImpl impl = new MWZooKeeperImpl();
+		MWZooKeeperServer server = new MWZooKeeperServer(impl, zabProperties);
+
+		logger.info("Starting MWZooKeeperServer on port {} with ID {}", port, myid);
+		logger.info("Peers: {}", peersStr);
 
 		server.start(port);
 		logger.info("Server started successfully on port {}", port);
