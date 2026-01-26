@@ -10,6 +10,9 @@ import java.io.ByteArrayInputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -38,6 +41,7 @@ public class MWZooKeeperServer implements ZabCallback {
 	private ServerSocket serverSocket;
 	private volatile boolean running = false;
 	private Thread acceptThread;
+	private ExecutorService workerPool;
 
 	private SingleZab zab;
 	private volatile ZabStatus currentStatus = ZabStatus.LOOKING; // On init leader still undetermined
@@ -163,6 +167,12 @@ public class MWZooKeeperServer implements ZabCallback {
 		}
 		serverSocket = new ServerSocket(port);
 		running = true;
+		ThreadFactory threadFactory = r -> {
+			Thread t = new Thread(r, "MWZooKeeper-Worker");
+			t.setDaemon(true);
+			return t;
+		};
+		workerPool = Executors.newCachedThreadPool(threadFactory);
 		acceptThread = new Thread(this::acceptLoop, "MWZooKeeper-AcceptThread");
 		acceptThread.setDaemon(true);
 		acceptThread.start();
@@ -176,6 +186,9 @@ public class MWZooKeeperServer implements ZabCallback {
 		if (acceptThread != null) {
 			try { acceptThread.join(1000); } catch (InterruptedException ignored) {}
 		}
+		if (workerPool != null) {
+			workerPool.shutdownNow();
+		}
 		logger.info("Server stopped");
 	}
 
@@ -184,10 +197,15 @@ public class MWZooKeeperServer implements ZabCallback {
 		while (running) {
 			try {
 				Socket client = serverSocket.accept();
-				logger.debug("Accepted new client connection from {}", client.getRemoteSocketAddress());
-				Thread worker = new Thread(() -> handleClient(client), "MWZooKeeper-Worker");
-				worker.setDaemon(true);
-				worker.start();
+                logger.debug("Accepted new client connection from {}", client.getRemoteSocketAddress()
+				if (workerPool != null) {
+					workerPool.execute(() -> handleClient(client));
+				} else {
+					// Fallback to spawning a thread if pool was not initialized
+					Thread worker = new Thread(() -> handleClient(client), "MWZooKeeper-Worker-Fallback");
+					worker.setDaemon(true);
+					worker.start();
+				}
 			} catch (SocketException se) {
 				// Socket closed during shutdown
 				logger.debug("Accept loop terminated (socket closed)");
@@ -206,6 +224,7 @@ public class MWZooKeeperServer implements ZabCallback {
 			ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
 			out.flush();
 			ObjectInputStream in = new ObjectInputStream(socket.getInputStream());
+			int responsesSinceReset = 0;
 
 			while (true) {
 				Object obj;
@@ -250,6 +269,10 @@ public class MWZooKeeperServer implements ZabCallback {
 				try {
 					out.writeObject(response);
 					out.flush();
+					// Periodically clear the stream's handle table to avoid growth on long-lived connections
+					if (++responsesSinceReset % 100 == 0) {
+						out.reset();
+					}
 					logger.debug("Response sent to client");
 				} catch (IOException ioe) {
 					// Broken pipe / client disconnected
