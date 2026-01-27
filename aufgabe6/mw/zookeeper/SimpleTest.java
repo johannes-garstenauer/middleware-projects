@@ -41,28 +41,21 @@ public class SimpleTest {
 			MWZooKeeperStat stat = new MWZooKeeperStat();
 			byte[] data = null;
 			int readRetries = 10;
-			int attemptNumber = 1;
 			MWZooKeeperException lastException = null;
 			while (readRetries > 0) {
 				try {
-					System.out.println("  Attempting to read data (attempt " + attemptNumber + "/10)...");
 					data = zk.getData("/test", stat);
-					System.out.println("  Success on attempt " + attemptNumber + "!");
 					break; // Success!
 				} catch (MWZooKeeperException e) {
 					lastException = e;
 					if (e.getMessage().contains("does not exist")) {
 						// Transaction not committed yet, retry
-						System.out.println("  Attempt " + attemptNumber + " failed: " + e.getMessage());
 						readRetries--;
-						attemptNumber++;
 						if (readRetries > 0) {
-							System.out.println("  Waiting 100ms before retry...");
 							Thread.sleep(100); // Wait 100ms before retry
 						}
 					} else {
 						// Different error (not eventual consistency), fail immediately
-						System.out.println("  Non-retry error: " + e.getMessage());
 						throw e;
 					}
 				}
@@ -70,7 +63,6 @@ public class SimpleTest {
 
 			// If all retries exhausted, throw the last exception
 			if (data == null && lastException != null) {
-				System.out.println("  All 10 retries exhausted, failing");
 				throw lastException;
 			}
 

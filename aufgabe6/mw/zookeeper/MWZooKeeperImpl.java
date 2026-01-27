@@ -12,6 +12,13 @@ public class MWZooKeeperImpl {
 	private final Map<String, Node> zb = new HashMap<>();
 	private final Map<String, Node> za = new HashMap<>();
 
+	public MWZooKeeperImpl() {
+		// Initialize root node so nodes can be created at the root level
+		Node root = new Node(null, 0, System.currentTimeMillis(), 0, false, false, null);
+		root.zxid = 0;
+		zb.put("/", root);
+	}
+
 	private static class Node {
 		byte[] data;
 		int version;
@@ -37,12 +44,8 @@ public class MWZooKeeperImpl {
 
 	public synchronized MWZooKeeperResponse processReadRequest(MWZooKeeperRequest request) {
 		String path = request.getPath();
-		System.out.println("[processReadRequest] Looking for path: '" + path + "'");
-		System.out.println("[processReadRequest] zb contains " + zb.size() + " nodes");
-		System.out.println("[processReadRequest] zb keys: " + zb.keySet());
 		MWZooKeeperResponse resp = new MWZooKeeperResponse();
 		Node node = zb.get(path);
-		System.out.println("[processReadRequest] Found node: " + (node != null ? "YES (deleted=" + node.deleted + ")" : "NO"));
 		if (node == null || node.deleted) {
 			resp.setException(new MWZooKeeperException("Node does not exist"));
 			return resp;
@@ -76,7 +79,13 @@ public class MWZooKeeperImpl {
 			int lastSlashIndex = path.lastIndexOf("/");
 			String parentPath = lastSlashIndex == -1 ? null : path.substring(0, lastSlashIndex);
 
-			if (parentPath != null) {
+			// If parentPath is empty string, it means this node is at root level (e.g., "/test")
+			// In this case, set parentPath to "/" to represent the root node
+			if (parentPath != null && parentPath.isEmpty()) {
+				parentPath = "/";
+			}
+
+			if (parentPath != null && !parentPath.equals("/")) {
 				// this node to be created is not on the root level and
 				// therefore should have some parents
 				// (we assume that the "root" always exist so you can create "/test" without creating "/" first)
@@ -163,19 +172,12 @@ public class MWZooKeeperImpl {
 
 
 	public synchronized MWZooKeeperResponse applyTxn(MWZooKeeperTxn txn, long zxid) {
-		System.out.println("[applyTxn] Called with zxid: " + zxid);
 		MWZooKeeperResponse resp = new MWZooKeeperResponse();
 		if (txn == null) {
-			System.out.println("[applyTxn] ERROR: Transaction is null!");
 			resp.setException(new MWZooKeeperException("Null transaction"));
 			return resp;
 		}
-		System.out.println("[applyTxn] Transaction operation: " + txn.getOperation());
-		System.out.println("[applyTxn] Transaction path: " + txn.getPath());
-		System.out.println("[applyTxn] Transaction isError: " + txn.isError());
-		System.out.println("[applyTxn] Transaction exception: " + txn.getException());
 		if (txn.isError()) {
-			System.out.println("[applyTxn] Transaction has error, returning early");
 			resp.setException(txn.getException());
 			// No state change; cleanup ZA entries that belong exactly to this zxid
 			cleanupZAForZxid(txn.getPath(), zxid);
@@ -183,15 +185,12 @@ public class MWZooKeeperImpl {
 		}
 
 		String path = txn.getPath();
-		System.out.println("[applyTxn] Applying " + txn.getOperation() + " for path: '" + path + "' with zxid: " + zxid);
 		switch (txn.getOperation()) {
 		case CREATE: {
 			Node n = new Node(txn.getData(),
 				0, System.currentTimeMillis(), zxid, txn.isEphemeral(), false, txn.getClientId());
 			n.zxid = zxid;
 			zb.put(path, n);
-			System.out.println("[applyTxn] Node created and added to zb. zb now contains " + zb.size() + " nodes");
-			System.out.println("[applyTxn] zb keys: " + zb.keySet());
 			resp.setPath(path);
 			resp.setStat(new MWZooKeeperStat(n.version, n.time, n.zxid));
 			// remove matching ZA entry if it corresponds to this zxid
