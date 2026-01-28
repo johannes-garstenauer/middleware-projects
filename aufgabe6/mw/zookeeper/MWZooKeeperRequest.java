@@ -14,7 +14,8 @@ public class MWZooKeeperRequest implements Serializable {
 	private byte[] data;
 	private boolean ephemeral;
 	private String clientId;
-	
+	private String correlationId; // For tracking follower requests through Zab
+
 	
 	public MWZooKeeperRequest(MWZooKeeperOperation operation, String path) {
 		this.operation = operation;
@@ -63,6 +64,14 @@ public class MWZooKeeperRequest implements Serializable {
 	
 	public boolean getEphemeral() {
 		return ephemeral;
+	}
+
+	public void setCorrelationId(String correlationId) {
+		this.correlationId = correlationId;
+	}
+
+	public String getCorrelationId() {
+		return correlationId;
 	}
 
 }

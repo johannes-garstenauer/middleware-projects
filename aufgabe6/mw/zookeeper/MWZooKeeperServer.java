@@ -5,7 +5,6 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
-import java.io.ByteArrayInputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
@@ -14,6 +13,10 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -36,6 +39,15 @@ public class MWZooKeeperServer implements ZabCallback {
 
 	private final MultiZab zab;
 	private volatile ZabStatus currentStatus = ZabStatus.LOOKING; // On init leader still undetermined
+
+	// Track pending synchronous writes
+	// Leader uses zxid to track requests it originated
+	private final ConcurrentHashMap<Long, CompletableFuture<MWZooKeeperResponse>> pendingWritesByZxid = new ConcurrentHashMap<>();
+	// Follower uses correlationId to track requests it forwarded to leader
+	private final ConcurrentHashMap<String, CompletableFuture<MWZooKeeperResponse>> pendingWritesByCorrelationId = new ConcurrentHashMap<>();
+
+	// Correlation ID generation for follower requests
+	private final AtomicLong correlationCounter = new AtomicLong(1);
 
 	public MWZooKeeperServer(MWZooKeeperImpl impl, Properties zabProperties) throws IOException {
 		this.impl = impl;
@@ -65,19 +77,60 @@ public class MWZooKeeperServer implements ZabCallback {
 		}
 
 		MWZooKeeperTxn zkTxn = (MWZooKeeperTxn) txn;
-		impl.applyTxn(zkTxn, zxid);
+
+		// Apply transaction to state machine
+		MWZooKeeperResponse response = impl.applyTxn(zkTxn, zxid);
 		logger.debug("Transaction {} applied successfully", zxid);
+
+		// Complete pending future if this was a synchronous write
+		// Leader checks by zxid
+		CompletableFuture<MWZooKeeperResponse> futureByZxid = pendingWritesByZxid.remove(zxid);
+		if (futureByZxid != null) {
+			logger.debug("Completing leader write future for zxid: {}", zxid);
+			futureByZxid.complete(response);
+		}
+
+		// Follower checks by correlationId
+		String correlationId = zkTxn.getCorrelationId();
+		if (correlationId != null) {
+			CompletableFuture<MWZooKeeperResponse> futureByCorrelation = pendingWritesByCorrelationId.remove(correlationId);
+			if (futureByCorrelation != null) {
+				logger.debug("Completing follower write future for correlationId: {}", correlationId);
+				futureByCorrelation.complete(response);
+			}
+		}
 	}
 
 	@Override
 	public void status(ZabStatus status, String leader) {
 		logger.info("Zab status changed: {}, leader: {}", status, leader);
+		ZabStatus previousStatus = this.currentStatus;
 		this.currentStatus = status;
 
 		if (status == ZabStatus.LEADING) {
 			logger.info("I am now the LEADER");
 		} else if (status == ZabStatus.FOLLOWING) {
 			logger.info("I am now a FOLLOWER of {}", leader);
+		} else if (status == ZabStatus.LOOKING) {
+			logger.info("I am now LOOKING (election in progress)");
+		}
+
+		// Cancel all pending writes if we lose leadership or enter election
+		if (previousStatus == ZabStatus.LEADING && status != ZabStatus.LEADING) {
+			logger.warn("Lost leadership - canceling {} pending writes", pendingWritesByZxid.size());
+			MWZooKeeperResponse errorResp = new MWZooKeeperResponse();
+			errorResp.setException(new MWZooKeeperException("Server lost leadership during write"));
+			pendingWritesByZxid.values().forEach(future -> future.complete(errorResp));
+			pendingWritesByZxid.clear();
+		}
+
+		// Cancel follower pending writes during election
+		if (status == ZabStatus.LOOKING && !pendingWritesByCorrelationId.isEmpty()) {
+			logger.warn("Entering election - canceling {} pending follower writes", pendingWritesByCorrelationId.size());
+			MWZooKeeperResponse errorResp = new MWZooKeeperResponse();
+			errorResp.setException(new MWZooKeeperException("Server entering election during write"));
+			pendingWritesByCorrelationId.values().forEach(future -> future.complete(errorResp));
+			pendingWritesByCorrelationId.clear();
 		}
 	}
 
@@ -93,13 +146,20 @@ public class MWZooKeeperServer implements ZabCallback {
 
 		// Create transaction and propose via Zab
 		MWZooKeeperTxn txn = impl.processWriteRequest(zkRequest, zxid);
+
+		// Copy correlationId from request to transaction (if present, from follower)
+		if (zkRequest.getCorrelationId() != null) {
+			txn.setCorrelationId(zkRequest.getCorrelationId());
+			logger.debug("Transaction {} has correlationId: {}", zxid, zkRequest.getCorrelationId());
+		}
+
 		zab.proposeTxn(txn, zxid);
 		logger.debug("Transaction with zxid {} proposed to Zab", zxid);
 	}
 
 	private MWZooKeeperResponse handleWriteRequestWithZab(MWZooKeeperRequest request) {
 		if (currentStatus == ZabStatus.LEADING) {
-			// Leader: process directly and return immediately
+			// Leader: process directly and WAIT for commit
 			logger.debug("Handling write request as leader");
 			long zxid = nextZXID.getAndIncrement();
 
@@ -113,36 +173,81 @@ public class MWZooKeeperServer implements ZabCallback {
 				return errorResp;
 			}
 
-			zab.proposeTxn(txn, zxid);
-			logger.debug("Transaction with zxid {} proposed", zxid);
+			// Create future to wait for commit
+			CompletableFuture<MWZooKeeperResponse> future = new CompletableFuture<>();
+			pendingWritesByZxid.put(zxid, future);
 
-			// Return success with path and stat immediately (fire-and-forget)
-			MWZooKeeperResponse resp = new MWZooKeeperResponse();
-			resp.setPath(request.getPath());
-			// For SET_DATA, include the new version in the response
-			if (request.getOperation() == MWZooKeeperOperation.SET_DATA) {
-				MWZooKeeperStat stat = new MWZooKeeperStat(txn.getVersion(), System.currentTimeMillis(), zxid);
-				resp.setStat(stat);
+			zab.proposeTxn(txn, zxid);
+			logger.debug("Transaction with zxid {} proposed, waiting for commit", zxid);
+
+			// SYNCHRONOUS: Wait for deliverTxn to complete the future
+			try {
+				MWZooKeeperResponse response = future.get(10, TimeUnit.SECONDS);
+				logger.debug("Transaction {} committed successfully", zxid);
+				return response;
+			} catch (TimeoutException e) {
+				logger.error("Timeout waiting for transaction {} to commit", zxid);
+				pendingWritesByZxid.remove(zxid);
+				MWZooKeeperResponse errorResp = new MWZooKeeperResponse();
+				errorResp.setException(new MWZooKeeperException("Write operation timed out"));
+				return errorResp;
+			} catch (InterruptedException e) {
+				logger.error("Interrupted while waiting for transaction {}", zxid);
+				pendingWritesByZxid.remove(zxid);
+				Thread.currentThread().interrupt();
+				MWZooKeeperResponse errorResp = new MWZooKeeperResponse();
+				errorResp.setException(new MWZooKeeperException("Write operation interrupted"));
+				return errorResp;
+			} catch (Exception e) {
+				logger.error("Error waiting for transaction {}", zxid, e);
+				pendingWritesByZxid.remove(zxid);
+				MWZooKeeperResponse errorResp = new MWZooKeeperResponse();
+				errorResp.setException(new MWZooKeeperException("Write operation failed: " + e.getMessage()));
+				return errorResp;
 			}
-			return resp;
 
 		} else if (currentStatus == ZabStatus.FOLLOWING) {
-			// Follower: forward to leader via Zab and return immediately
+			// Follower: forward to leader via Zab and WAIT for commit
 			logger.debug("Forwarding write request to leader as follower");
-			zab.forwardRequest(request);
-			logger.debug("Request forwarded to leader");
 
-			// Return success with path immediately (fire-and-forget)
-			// Note: We don't know the zxid or final version since leader will assign it
-			MWZooKeeperResponse resp = new MWZooKeeperResponse();
-			resp.setPath(request.getPath());
-			// For SET_DATA on follower, we can't predict the exact stat
-			// Return a dummy stat - this is a limitation of fire-and-forget
-			if (request.getOperation() == MWZooKeeperOperation.SET_DATA) {
-				MWZooKeeperStat stat = new MWZooKeeperStat(0, System.currentTimeMillis(), 0);
-				resp.setStat(stat);
+			// Generate unique correlationId to track this request
+			String myId = clientIdGenerator.nextUniqueId().split("-")[0]; // Extract server ID part
+			String correlationId = myId + "-" + System.nanoTime() + "-" + correlationCounter.getAndIncrement();
+			request.setCorrelationId(correlationId);
+			logger.debug("Generated correlationId: {} for follower write", correlationId);
+
+			// Create future to wait for commit
+			CompletableFuture<MWZooKeeperResponse> future = new CompletableFuture<>();
+			pendingWritesByCorrelationId.put(correlationId, future);
+
+			zab.forwardRequest(request);
+			logger.debug("Request forwarded to leader with correlationId: {}, waiting for commit", correlationId);
+
+			// SYNCHRONOUS: Wait for deliverTxn to complete the future
+			try {
+				MWZooKeeperResponse response = future.get(10, TimeUnit.SECONDS);
+				logger.debug("Follower write with correlationId {} committed successfully", correlationId);
+				return response;
+			} catch (TimeoutException e) {
+				logger.error("Timeout waiting for follower write {} to commit", correlationId);
+				pendingWritesByCorrelationId.remove(correlationId);
+				MWZooKeeperResponse errorResp = new MWZooKeeperResponse();
+				errorResp.setException(new MWZooKeeperException("Write operation timed out"));
+				return errorResp;
+			} catch (InterruptedException e) {
+				logger.error("Interrupted while waiting for follower write {}", correlationId);
+				pendingWritesByCorrelationId.remove(correlationId);
+				Thread.currentThread().interrupt();
+				MWZooKeeperResponse errorResp = new MWZooKeeperResponse();
+				errorResp.setException(new MWZooKeeperException("Write operation interrupted"));
+				return errorResp;
+			} catch (Exception e) {
+				logger.error("Error waiting for follower write {}", correlationId, e);
+				pendingWritesByCorrelationId.remove(correlationId);
+				MWZooKeeperResponse errorResp = new MWZooKeeperResponse();
+				errorResp.setException(new MWZooKeeperException("Write operation failed: " + e.getMessage()));
+				return errorResp;
 			}
-			return resp;
 
 		} else {
 			// LOOKING state - cannot process writes during election

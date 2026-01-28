@@ -13,6 +13,7 @@ public class MWZooKeeperTxn implements Serializable {
 	private boolean ephemeral;
 	private boolean delete;
 	private String clientId;
+	private String correlationId; // For tracking follower requests through Zab
 	private MWZooKeeperException exception; // non-null if this is an error transaction
 
 	public MWZooKeeperTxn() {}
@@ -40,6 +41,9 @@ public class MWZooKeeperTxn implements Serializable {
 
 	public MWZooKeeperException getException() { return exception; }
 	public void setException(MWZooKeeperException exception) { this.exception = exception; }
+
+	public String getCorrelationId() { return correlationId; }
+	public void setCorrelationId(String correlationId) { this.correlationId = correlationId; }
 
 	public boolean isError() { return exception != null; }
 
