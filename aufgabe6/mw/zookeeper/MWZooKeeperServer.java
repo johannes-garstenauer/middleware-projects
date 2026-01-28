@@ -21,8 +21,6 @@ import org.apache.zookeeper.zab.MultiZab;
 import org.apache.zookeeper.zab.ZabCallback;
 import org.apache.zookeeper.zab.ZabStatus;
 
-// TODO: refactor into separate Zab classes
-// TODO: remove the whole delay test nonsense
 public class MWZooKeeperServer implements ZabCallback {
 
 	private static final Logger logger = LogManager.getLogger(MWZooKeeperServer.class);
@@ -39,45 +37,28 @@ public class MWZooKeeperServer implements ZabCallback {
 	private final MultiZab zab;
 	private volatile ZabStatus currentStatus = ZabStatus.LOOKING; // On init leader still undetermined
 
-
-	// Helper method to deserialize objects from Zab Txn
-	private static Serializable deserializeFromBytes(byte[] data) throws IOException, ClassNotFoundException {
-		ByteArrayInputStream bais = new ByteArrayInputStream(data);
-		ObjectInputStream ois = new ObjectInputStream(bais);
-		return (Serializable) ois.readObject();
-	}
-
-
 	public MWZooKeeperServer(MWZooKeeperImpl impl, Properties zabProperties) throws IOException {
 		this.impl = impl;
 		this.zab = new MultiZab(zabProperties, this);
 		this.clientIdGenerator = new MWZooKeeperIdGenerator(zabProperties.getProperty("myid"));
 	}
 
-	// ZabCallback interface implementation
 	@Override
 	public void deliverRequest(Serializable request) {
-		// Called concurrently on followers when they receive a write request
-		// Followers must forward write requests to the leader
-		if (currentStatus == ZabStatus.LEADING) {
-			// Leader processes the request
+		if (currentStatus == ZabStatus.LEADING) {  // Leader processes the request
 			logger.debug("Leader processing write request: {}", request);
 			processWriteRequestAsLeader(request);
-		} else if (currentStatus == ZabStatus.FOLLOWING) {
-			// Follower forwards to leader via Zab
+		} else if (currentStatus == ZabStatus.FOLLOWING) {  // Follower forwards to leader via Zab
 			logger.debug("Follower forwarding request to leader: {}", request);
 			zab.forwardRequest(request);
 		}
-		// If LOOKING, drop request or queue it
+		// If LOOKING drop request
 	}
 
 	@Override
 	public void deliverTxn(Serializable txn, long zxid) {
-		// Called when a transaction has been committed by majority
-		// Apply to local state machine
 		logger.debug("Delivering transaction with zxid: {}", zxid);
 
-		// Zab passes back the same object we gave to proposeTxn()
 		if (!(txn instanceof MWZooKeeperTxn)) {
 			logger.error("Received non-MWZooKeeperTxn object: {}", txn);
 			return;
@@ -93,7 +74,6 @@ public class MWZooKeeperServer implements ZabCallback {
 		logger.info("Zab status changed: {}, leader: {}", status, leader);
 		this.currentStatus = status;
 
-		// On becoming leader, process any queued requests
 		if (status == ZabStatus.LEADING) {
 			logger.info("I am now the LEADER");
 		} else if (status == ZabStatus.FOLLOWING) {
@@ -101,7 +81,6 @@ public class MWZooKeeperServer implements ZabCallback {
 		}
 	}
 
-	// Process write request as leader
 	private void processWriteRequestAsLeader(Serializable request) {
 		if (!(request instanceof MWZooKeeperRequest)) {
 			logger.error("Received non-MWZooKeeperRequest: {}", request);
@@ -114,10 +93,64 @@ public class MWZooKeeperServer implements ZabCallback {
 
 		// Create transaction and propose via Zab
 		MWZooKeeperTxn txn = impl.processWriteRequest(zkRequest, zxid);
-
-		// Propose transaction directly - Zab will handle wrapping it internally
 		zab.proposeTxn(txn, zxid);
 		logger.debug("Transaction with zxid {} proposed to Zab", zxid);
+	}
+
+	private MWZooKeeperResponse handleWriteRequestWithZab(MWZooKeeperRequest request) {
+		if (currentStatus == ZabStatus.LEADING) {
+			// Leader: process directly and return immediately
+			logger.debug("Handling write request as leader");
+			long zxid = nextZXID.getAndIncrement();
+
+			// Create transaction and propose via Zab
+			MWZooKeeperTxn txn = impl.processWriteRequest(request, zxid);
+
+			// Check if transaction has an error
+			if (txn.getException() != null) {
+				MWZooKeeperResponse errorResp = new MWZooKeeperResponse();
+				errorResp.setException(txn.getException());
+				return errorResp;
+			}
+
+			zab.proposeTxn(txn, zxid);
+			logger.debug("Transaction with zxid {} proposed", zxid);
+
+			// Return success with path and stat immediately (fire-and-forget)
+			MWZooKeeperResponse resp = new MWZooKeeperResponse();
+			resp.setPath(request.getPath());
+			// For SET_DATA, include the new version in the response
+			if (request.getOperation() == MWZooKeeperOperation.SET_DATA) {
+				MWZooKeeperStat stat = new MWZooKeeperStat(txn.getVersion(), System.currentTimeMillis(), zxid);
+				resp.setStat(stat);
+			}
+			return resp;
+
+		} else if (currentStatus == ZabStatus.FOLLOWING) {
+			// Follower: forward to leader via Zab and return immediately
+			logger.debug("Forwarding write request to leader as follower");
+			zab.forwardRequest(request);
+			logger.debug("Request forwarded to leader");
+
+			// Return success with path immediately (fire-and-forget)
+			// Note: We don't know the zxid or final version since leader will assign it
+			MWZooKeeperResponse resp = new MWZooKeeperResponse();
+			resp.setPath(request.getPath());
+			// For SET_DATA on follower, we can't predict the exact stat
+			// Return a dummy stat - this is a limitation of fire-and-forget
+			if (request.getOperation() == MWZooKeeperOperation.SET_DATA) {
+				MWZooKeeperStat stat = new MWZooKeeperStat(0, System.currentTimeMillis(), 0);
+				resp.setStat(stat);
+			}
+			return resp;
+
+		} else {
+			// LOOKING state - cannot process writes during election
+			logger.warn("Received write request while in LOOKING state");
+			MWZooKeeperResponse resp = new MWZooKeeperResponse();
+			resp.setException(new MWZooKeeperException("Cluster is in election - try again later"));
+			return resp;
+		}
 	}
 
 	public void start(int port) throws IOException {
@@ -126,12 +159,11 @@ public class MWZooKeeperServer implements ZabCallback {
 			return;
 		}
 
-		// Start Zab protocol first (this will start leader election)
 		logger.info("Starting Zab protocol...");
 		zab.startup();
 		logger.info("Zab protocol started, leader election in progress");
 
-		// Then start the client-facing server
+		// Start the client-facing server
 		serverSocket = new ServerSocket(port);
 		running = true;
 		ThreadFactory threadFactory = r -> {
@@ -292,64 +324,6 @@ public class MWZooKeeperServer implements ZabCallback {
 			}
 		}
 	}
-
-	private MWZooKeeperResponse handleWriteRequestWithZab(MWZooKeeperRequest request) {
-		if (currentStatus == ZabStatus.LEADING) {
-			// Leader: process directly and return immediately
-			logger.debug("Handling write request as leader");
-			long zxid = nextZXID.getAndIncrement();
-
-			// Create transaction and propose via Zab
-			MWZooKeeperTxn txn = impl.processWriteRequest(request, zxid);
-
-			// Check if transaction has an error
-			if (txn.getException() != null) {
-				MWZooKeeperResponse errorResp = new MWZooKeeperResponse();
-				errorResp.setException(txn.getException());
-				return errorResp;
-			}
-
-			// Propose transaction directly - Zab will handle wrapping it internally
-			zab.proposeTxn(txn, zxid);
-			logger.debug("Transaction with zxid {} proposed", zxid);
-
-			// Return success with path and stat immediately (fire-and-forget)
-			MWZooKeeperResponse resp = new MWZooKeeperResponse();
-			resp.setPath(request.getPath());
-			// For SET_DATA, include the new version in the response
-			if (request.getOperation() == MWZooKeeperOperation.SET_DATA) {
-				MWZooKeeperStat stat = new MWZooKeeperStat(txn.getVersion(), System.currentTimeMillis(), zxid);
-				resp.setStat(stat);
-			}
-			return resp;
-
-		} else if (currentStatus == ZabStatus.FOLLOWING) {
-			// Follower: forward to leader via Zab and return immediately
-			logger.debug("Forwarding write request to leader as follower");
-			zab.forwardRequest(request);
-			logger.debug("Request forwarded to leader");
-
-			// Return success with path immediately (fire-and-forget)
-			// Note: We don't know the zxid or final version since leader will assign it
-			MWZooKeeperResponse resp = new MWZooKeeperResponse();
-			resp.setPath(request.getPath());
-			// For SET_DATA on follower, we can't predict the exact stat
-			// Return a dummy stat - this is a limitation of fire-and-forget
-			if (request.getOperation() == MWZooKeeperOperation.SET_DATA) {
-				MWZooKeeperStat stat = new MWZooKeeperStat(0, System.currentTimeMillis(), 0);
-				resp.setStat(stat);
-			}
-			return resp;
-
-		} else {
-			// LOOKING state - cannot process writes during election
-			logger.warn("Received write request while in LOOKING state");
-			MWZooKeeperResponse resp = new MWZooKeeperResponse();
-			resp.setException(new MWZooKeeperException("Cluster is in election - try again later"));
-			return resp;
-		}
-	}
-
 
 	public static void main(String[] args) throws Exception {
 		if (args.length < 3) {

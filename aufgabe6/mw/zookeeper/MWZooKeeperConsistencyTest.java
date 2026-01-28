@@ -18,10 +18,15 @@ import java.util.concurrent.atomic.AtomicLong;
  *   Server 2: java MWZooKeeperServer 2182 2 localhost:2888:3888,localhost:2889:3889,localhost:2890:3890
  *   Server 3: java MWZooKeeperServer 2183 3 localhost:2888:3888,localhost:2889:3889,localhost:2890:3890
  */
+
+/**
+ * java -cp middleware-gruppe-01.jar mw.zookeeper.MWZooKeeperServer 2181 1 cip1b0.cip.cs.fau.de:2888:3888,cip1b1.cip.cs.fau.de:2888:3888,cip1b2.cip.cs.fau.de:2888:3888
+ * java -cp middleware-gruppe-01.jar mw.zookeeper.MWZooKeeperServer 2181 2 cip1b0.cip.cs.fau.de:2888:3888,cip1b1.cip.cs.fau.de:2888:3888,cip1b2.cip.cs.fau.de:2888:3888
+ * java -cp middleware-gruppe-01.jar mw.zookeeper.MWZooKeeperServer 2181 3 cip1b0.cip.cs.fau.de:2888:3888,cip1b1.cip.cs.fau.de:2888:3888,cip1b2.cip.cs.fau.de:2888:3888
+ * */
 public class MWZooKeeperConsistencyTest {
 
 	private static final String TEST_NODE = "/performance_test_node";
-	private static final int WARMUP_ITERATIONS = 50;
 	private static final int TEST_ITERATIONS = 200;
 
 	public static void main(String[] args) throws Exception {
@@ -87,6 +92,7 @@ public class MWZooKeeperConsistencyTest {
 			byte[] initialData = "initial".getBytes();
 			try {
 				zk.create(TEST_NODE, initialData, false);
+				Thread.sleep(1000);  // Wait for replication to complete
 			} catch (MWZooKeeperException e) {
 				System.out.println("Test node already exists, reusing it.");
 			}
@@ -191,46 +197,63 @@ public class MWZooKeeperConsistencyTest {
 			System.out.println("Waiting for initial replication...");
 			Thread.sleep(500);
 
-			// Test: Perform writes and immediate reads
-			int numTests = 50;
-			int staleReadsDetected = 0;
-			int totalReads = 0;
+			// Test: Perform concurrent writes and reads to catch stale reads
+			int numTests = 100;
+			AtomicInteger staleReadsDetected = new AtomicInteger(0);
+			AtomicInteger totalReads = new AtomicInteger(0);
+			ExecutorService executor = Executors.newFixedThreadPool(4);
+			CountDownLatch latch = new CountDownLatch(numTests);
+			Object lock = new Object(); // Single lock for both writer and reader
 
-			System.out.println("Performing " + numTests + " write-then-read cycles...");
+			System.out.println("Performing " + numTests + " concurrent write-then-read operations...");
 			System.out.println("Writer: " + server1Address);
 			System.out.println("Reader: " + server2Address);
 			System.out.println();
 
 			for (int i = 1; i <= numTests; i++) {
-				// Write new value
-				String expectedValue = String.valueOf(i);
-				writer.setData(testNode, expectedValue.getBytes(), -1);
+				final int iteration = i;
+				executor.execute(() -> {
+					try {
+						String expectedValue = String.valueOf(iteration);
 
-				// Immediately read from different server
-				MWZooKeeperStat stat = new MWZooKeeperStat();
-				byte[] readData = reader.getData(testNode, stat);
-				String readValue = new String(readData);
-				totalReads++;
+						// Write operation (serialized to prevent stream corruption)
+						synchronized (lock) {
+							writer.setData(testNode, expectedValue.getBytes(), -1);
+						}
 
-				if (!readValue.equals(expectedValue)) {
-					staleReadsDetected++;
-					if (staleReadsDetected <= 10) { // Only print first 10 occurrences
-						System.out.printf("  Iteration %d: STALE READ detected! Expected '%s', got '%s' (version: %d)%n",
-							i, expectedValue, readValue, stat.getVersion());
+						// Read IMMEDIATELY from different server (serialized but separate from write)
+						MWZooKeeperStat stat = new MWZooKeeperStat();
+						byte[] readData;
+						synchronized (lock) {
+							readData = reader.getData(testNode, stat);
+						}
+
+						String readValue = new String(readData);
+						totalReads.incrementAndGet();
+
+						if (!readValue.equals(expectedValue)) {
+							int staleCount = staleReadsDetected.incrementAndGet();
+							if (staleCount <= 10) { // Only print first 10 occurrences
+								System.out.printf("  Iteration %d: STALE READ detected! Expected '%s', got '%s' (version: %d)%n",
+									iteration, expectedValue, readValue, stat.getVersion());
+							}
+						}
+					} catch (Exception e) {
+						System.err.println("Error in iteration " + iteration + ": " + e.getMessage());
+					} finally {
+						latch.countDown();
 					}
-				}
-
-				// Small delay to allow some replication
-				if (i % 10 == 0) {
-					Thread.sleep(10);
-				}
+				});
 			}
+
+			latch.await();
+			executor.shutdown();
 
 			System.out.println();
 			System.out.println("RESULTS:");
-			System.out.printf("  Total operations:     %d%n", totalReads);
-			System.out.printf("  Stale reads detected: %d%n", staleReadsDetected);
-			System.out.printf("  Stale read rate:      %.1f%%%n", (staleReadsDetected * 100.0 / totalReads));
+			System.out.printf("  Total operations:     %d%n", totalReads.get());
+			System.out.printf("  Stale reads detected: %d%n", staleReadsDetected.get());
+			System.out.printf("  Stale read rate:      %.1f%%%n", (staleReadsDetected.get() * 100.0 / totalReads.get()));
 			System.out.println();
 
 			// Cleanup
