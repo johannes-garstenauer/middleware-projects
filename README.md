@@ -1,8 +1,13 @@
+# Middleware Exercises (MWCC)
 
-Willkommen zu deinem Middleware Übungsrepo
-=================================================
+This repository contains coursework and implementations for a Middleware class. It is organized into multiple assignments ("aufgabe" folders), each focusing on a different topic (registry clients, hybrid cloud management, distributed file system, MapReduce, ZooKeeper, etc.). The repo also includes handouts, small utilities, and supporting assets used during the exercises.
 
-Du findest alle Informationen zur Übung unter: https://sys.cs.fau.de/lehre/ws/mw
+## Structure at a glance
 
-Bitte checke ins Repo nur deinen Code ein! PDFs, Binaries etc. bitte anderweitig verwalten.
-Die automatisch generierte .gitignore ist ein Vorschlag und darf gerne angepasst werden.
+- `aufgabe1/` - Basic registry and web service clients, path server and utilities.
+- `aufgabe2/` - Hybrid cloud control and service instance management.
+- `aufgabe3/` - Distributed file system (NameNode, metadata, persistence).
+- `aufgabe4/` - MapReduce framework and jobs (e.g., hashing, friend count).
+- `aufgabe6/` - ZooKeeper-based components and consistency tests.
+- `src/` - Prebuilt jars used by the exercises.
+- `downloads/`, `state/` - Local artifacts and snapshots used during runs.
